@@ -13,11 +13,9 @@ from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 from pptx.oxml.ns import qn
 
-__all__ = ["PlaceholderExtractor", "ExtractorConfig", "pptx_to_xml", "pptx_to_markdown"]
 
 logger = logging.getLogger(__name__)
 
-# OOXML/enum constants
 _MSO_FILL_PICTURE = 6                       # MSO_FILL.PICTURE: a shape filled with an image
 _RASTER_EXT = {"png", "jpg", "jpeg", "gif", "webp"}   # formats the vision API accepts directly
 _IMAGE_DETAIL = "high"                      # vision detail level; "high" reads dense charts best
@@ -36,29 +34,18 @@ _IMAGE_PROMPT = (
 # Configuration
 # --------------------------------------------------------------------------- #
 class ExtractorConfig:
-    """Tunable settings for an extraction run (defaults live as class attributes)."""
 
     model = "gpt-4.1"               # any vision-capable OpenAI model
     max_workers = 8                 # images described concurrently
     prompt = _IMAGE_PROMPT
 
-    # __init__ defaults reuse the class attributes above, so there is no duplication
-    # and main() can still read e.g. ExtractorConfig.model.
     def __init__(self, model=model, max_workers=max_workers, prompt=prompt):
         self.model = model
         self.max_workers = max_workers
         self.prompt = prompt
 
 
-# --------------------------------------------------------------------------- #
-# Data model
-# --------------------------------------------------------------------------- #
-# A slide's content is a list of (kind, value) tuples:
-#   ("text",  str)  -> a run of native text
-#   ("image", int)  -> a placeholder pointing at a unique image by its id
 class ImageRef:
-    """One unique image and the description the model produced for it."""
-
     def __init__(self, image_id: int, blob: bytes, ext: str, description: str = ""):
         self.image_id = image_id
         self.blob = blob
@@ -109,16 +96,8 @@ def _xml_attr(value) -> str:
     return (str(value).replace("&", "&amp;").replace('"', "&quot;")
             .replace("<", "&lt;").replace(">", "&gt;"))
 
-
-# --------------------------------------------------------------------------- #
-# Image extraction — reads bytes from the .pptx package, no rendering
-# --------------------------------------------------------------------------- #
 def _image_from_shape(shape) -> tuple[bytes, str] | None:
-    """Return ``(blob, ext)`` if the shape carries a picture, else ``None``.
 
-    Handles two cases: a true ``PICTURE`` shape, and a picture used as a shape
-    *fill* (common for charts) which the standard ``shape.image`` API misses.
-    """
     if shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
         try:
             image = shape.image
@@ -139,17 +118,13 @@ def _image_from_shape(shape) -> tuple[bytes, str] | None:
 
 
 def _sort_key(shape) -> tuple[int, int]:
-    """Approximate visual reading order: top-to-bottom, then left-to-right."""
     top = shape.top if isinstance(shape.top, int) else 0
     left = shape.left if isinstance(shape.left, int) else 0
     return top, left
 
 
 def _iter_blocks(shapes, register):
-    """Yield ("text", str) / ("image", id) tuples per shape in reading order, recursing groups.
 
-    ``register`` deduplicates an image and returns its stable ``image_id``.
-    """
     for shape in sorted(shapes, key=_sort_key):
         if shape.shape_type == MSO_SHAPE_TYPE.GROUP:
             yield from _iter_blocks(shape.shapes, register)
@@ -173,9 +148,6 @@ def _iter_blocks(shapes, register):
                 yield ("text", "\n".join(rows))
 
 
-# --------------------------------------------------------------------------- #
-# Image -> data URL (vision APIs accept raster only; SVG is rasterized first)
-# --------------------------------------------------------------------------- #
 def _svg_to_png(svg_bytes: bytes) -> bytes:
     import fitz  # PyMuPDF — imported lazily so text-only / SVG-free decks need no dependency
     return fitz.open(stream=svg_bytes, filetype="svg")[0].get_pixmap().tobytes("png")
@@ -188,34 +160,23 @@ def _data_url(blob: bytes, ext: str) -> str:
     return f"data:image/{mime};base64,{base64.b64encode(blob).decode('ascii')}"
 
 
-# --------------------------------------------------------------------------- #
-# Extractor
-# --------------------------------------------------------------------------- #
 class PlaceholderExtractor:
-    """Convert a ``.pptx`` to Markdown: native text inline, images described by a model."""
 
     def __init__(self, config: ExtractorConfig | None = None):
         self.config = config or ExtractorConfig()
 
-    def extract(self, pptx_path: Path) -> str:
-        """Return the full deck as Markdown."""
-        slides, by_id = self._run(pptx_path)
-        return self._render(slides, by_id)
-
     def extract_xml(self, pptx_path: Path, data_type: str = "PPTX") -> str:
-        """Return the full deck as XML in the <documents>/<document> template."""
         slides, by_id = self._run(pptx_path)
         return self._render_xml(slides, by_id, Path(pptx_path).name, data_type=data_type)
 
     def _run(self, pptx_path: Path) -> tuple[list[Slide], dict[int, ImageRef]]:
         """Parse the deck, then describe its images. Returns (slides, {image_id: ImageRef})."""
-        pptx_path = _validate_pptx(pptx_path)           # gate: must be a real .pptx
+        pptx_path = _validate_pptx(pptx_path)           
         slides, images = self._parse(pptx_path)
         if images:
             self._describe_all(images)
         return slides, {img.image_id: img for img in images}
 
-    # -- 1. parse: collect slides and the set of unique images -------------- #
     def _parse(self, pptx_path: Path) -> tuple[list[Slide], list[ImageRef]]:
         registry: dict[str, ImageRef] = {}
 
@@ -238,7 +199,6 @@ class PlaceholderExtractor:
                     len(slides), len(images), placements)
         return slides, images
 
-    # -- 2. describe: one model call per unique image, concurrently --------- #
     def _describe_all(self, images: list[ImageRef]) -> None:
         from openai import OpenAI            # lazy import keeps text-only runs light
         client = OpenAI()                    # reads OPENAI_API_KEY from the environment
@@ -263,8 +223,14 @@ class PlaceholderExtractor:
             logger.warning("image %d failed: %s", image.image_id, exc)
             image.description = f"_[image description failed: {exc}]_"
 
-    # -- 3. render: stitch text and resolved image descriptions ------------- #
-    def _render(self, slides: list[Slide], by_id: dict[int, ImageRef]) -> str:
+
+    def _render_xml(self, slides: list[Slide], by_id: dict[int, ImageRef],
+                    filename: str, index: int = 1, data_type: str = "PPTX") -> str:
+        """Render the deck as XML in the <documents>/<document> template.
+
+        Builds the slide body (native text + image descriptions) inline, then wraps it.
+        Attributes are escaped; the body is kept raw to match the reference template.
+        """
         sections = []
         for slide in slides:
             parts = []
@@ -274,18 +240,10 @@ class PlaceholderExtractor:
                 else:
                     desc = by_id[value].description or "_[no description]_"
                     parts.append(f"**[Image {value}]**\n\n{desc}")
-            body = "\n\n".join(parts) if parts else "_[no content]_"
-            sections.append(f"## Slide {slide.number}\n\n{body}")
-        return "\n\n---\n\n".join(sections) + "\n"
+            slide_body = "\n\n".join(parts) if parts else "_[no content]_"
+            sections.append(f"## Slide {slide.number}\n\n{slide_body}")
+        body = "\n\n---\n\n".join(sections) + "\n"
 
-    def _render_xml(self, slides: list[Slide], by_id: dict[int, ImageRef],
-                    filename: str, index: int = 1, data_type: str = "PPTX") -> str:
-        """Wrap the extracted content in the <documents>/<document> template.
-
-        Attributes (filename, data-type) are escaped; the body is the slide content
-        from the Markdown renderer, kept raw to match the reference template.
-        """
-        body = self._render(slides, by_id)                  # slide text + image descriptions
         return (
             "<documents>\n"
             f'  <document index="{index}" filename="{_xml_attr(filename)}"'
@@ -295,24 +253,12 @@ class PlaceholderExtractor:
             "</documents>\n"
         )
 
-
-# --------------------------------------------------------------------------- #
-# Convenience functions — import these from another module
-# --------------------------------------------------------------------------- #
 def pptx_to_xml(file_path, output_dir, config: ExtractorConfig | None = None,
                 data_type: str = "PPTX") -> Path:
     """Extract `file_path` to XML and write `<output_dir>/<name>.xml`. Returns the output path."""
     src = Path(file_path)
     text = PlaceholderExtractor(config).extract_xml(src, data_type=data_type)
     return _write(text, output_dir, src.stem, ".xml")
-
-
-def pptx_to_markdown(file_path, output_dir, config: ExtractorConfig | None = None) -> Path:
-    """Extract `file_path` to Markdown and write `<output_dir>/<name>.md`. Returns the output path."""
-    src = Path(file_path)
-    text = PlaceholderExtractor(config).extract(src)
-    return _write(text, output_dir, src.stem, ".md")
-
 
 def _write(text: str, output_dir, stem: str, ext: str) -> Path:
     out_path = Path(output_dir) / f"{stem}{ext}"
@@ -328,10 +274,8 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("pptx", type=Path, help="path to the .pptx file")
     parser.add_argument("-o", "--out", type=Path,
-                        help="output path (default: output/<name>.<format>)")
+                        help="output path (default: output/<name>.xml)")
     parser.add_argument("-m", "--model", default=ExtractorConfig.model, help="OpenAI model")
-    parser.add_argument("--format", default="xml", choices=["xml", "md"],
-                        help="output format (default: xml)")
     parser.add_argument("--data-type", default="PPTX",
                         help="value for the <document data-type> attribute (default: PPTX)")
     args = parser.parse_args(argv)
@@ -339,12 +283,11 @@ def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stderr)
     logging.getLogger("httpx").setLevel(logging.WARNING)    # mute per-request HTTP noise
 
-    out_path = args.out or Path("output") / f"{args.pptx.stem}.{args.format}"
+    out_path = args.out or Path("output") / f"{args.pptx.stem}.xml"
     config = ExtractorConfig(model=args.model)
     extractor = PlaceholderExtractor(config)
     try:
-        text = (extractor.extract_xml(args.pptx, data_type=args.data_type)
-                if args.format == "xml" else extractor.extract(args.pptx))
+        text = extractor.extract_xml(args.pptx, data_type=args.data_type)
     except (FileNotFoundError, ValueError) as exc:      # bad/missing/non-pptx input
         parser.error(str(exc))                          # clean "error: …", no traceback
 

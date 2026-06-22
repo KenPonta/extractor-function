@@ -98,30 +98,29 @@ Log GDP Per Worker Trends (2000-2023)
 
 **[Image 5]**
 
-Title: *(No explicit title visible)*
+Title: *(not shown)*
 
 Y-Axis: lny (Range: 7 to 12)
 X-Axis: Year (Range: 2000 to 2025)
 
 Legend/Series:
 - Cambodia (blue)
-- Thailand (pink)
-- Indonesia (green)
+- Thailand (purple-pink)
+- Indonesia (teal)
 - Brunei (yellow)
 - Lao (purple)
-- Malaysia (red-orange)
-- Myanmar (light blue)
-- Philippines (dark red)
-- Singapore (aqua)
+- Malaysia (orange-red)
+- Myanmar (green)
+- Philippines (brown)
+- Singapore (red)
 - Vietnam (orange)
 
 Trends/Relationships:
-- Singapore and Brunei have the highest values of lny, consistently between 11 and 12.
-- Malaysia and Thailand are next, with values between approximately 9 and 10.
-- Indonesia and Philippines are clustered around 8 to 9.
-- Lao, Myanmar, and Vietnam show increasing trends from about 8 towards 9.
-- Cambodia starts lowest, just above 7, and gradually increases to above 8 by 2025.
-- All countries show a generally increasing trend in lny from 2000 to 2025.
+- Indonesia and Brunei show the highest 'lny' values, staying above 11 throughout the period.
+- Singapore and Malaysia also present relatively high 'lny' values, just below Indonesia and Brunei.
+- The Philippines, Thailand, and Vietnam fall in the middle range with 'lny' values from upper 8 to just under 10.
+- Cambodia starts with the lowest 'lny' (about 7) but demonstrates a steady upward trend.
+- All countries show a generally increasing or stable trend in 'lny' from 2000 to 2025.
 
 9.27
 
@@ -157,16 +156,7 @@ Two Key Equations
 
 **[Image 6]**
 
-Title: None
-
-Equation:
-K₀ = I₀ / (g + δ)
-
-Where:
-- K₀: (not defined in the image)
-- I₀: (not defined in the image)
-- g: (not defined in the image)
-- δ: (not defined in the image)
+$K_0 = \frac{i_0}{g + \delta}$
 
 **[Image 7]**
 
@@ -198,11 +188,11 @@ Rankings are broadly stable under both estimated and calibrated α.
 
 **[Image 8]**
 
-Legend:
-- Light brown: Estimated α
-- Dark brown: Calibrated α
+**Legend:**
+- Estimated α (light brown)
+- Calibrated α (dark brown)
 
-Y-Axis: Country
+**Y-axis (Country):**
 - Vietnam
 - Singapore
 - Indonesia
@@ -213,23 +203,26 @@ Y-Axis: Country
 - Philippines
 - Brunei
 
-X-Axis: Values (range: approximately -2.5 to 2.5)
+**X-axis:**
+- Scale: -2 to 2 (intervals at -2, -1, 0, 1, 2)
+- No specific label stated
 
-Data (relative bar lengths, approximated visually from the chart):
-- Vietnam: Estimated α ≈ 2.2, Calibrated α ≈ 2.2
-- Singapore: Estimated α ≈ 1.7, Calibrated α ≈ 1.7
-- Indonesia: Estimated α ≈ 1.7, Calibrated α ≈ 1.7
-- Cambodia: Estimated α ≈ 1.3, Calibrated α ≈ 1.3
-- Laos: Estimated α ≈ 1.3, Calibrated α ≈ 1.3
-- Thailand: Estimated α ≈ 1.0, Calibrated α ≈ 1.0
-- Malaysia: Estimated α ≈ 0.8, Calibrated α ≈ 0.8
-- Philippines: Estimated α ≈ 0.7, Calibrated α ≈ 0.7
-- Brunei: Estimated α ≈ -2.1, Calibrated α ≈ -2.1
+**Bar Values (approximate from visual):**
 
-Trend/relationship:
-- All countries except Brunei have positive Estimated and Calibrated α values.
-- Brunei has a negative Estimated and Calibrated α.
-- The Estimated α and Calibrated α values are nearly identical for each country.
+| Country     | Estimated α | Calibrated α |
+|-------------|-------------|--------------|
+| Vietnam     | ~2          | ~2           |
+| Singapore   | ~1.4        | ~1.4         |
+| Indonesia   | ~1.3        | ~1.3         |
+| Cambodia    | ~1.2        | ~1.2         |
+| Laos        | ~1.0        | ~1.0         |
+| Thailand    | ~0.9        | ~0.9         |
+| Malaysia    | ~0.8        | ~0.8         |
+| Philippines | ~0.7        | ~0.7         |
+| Brunei      | ~-2         | ~-2          |
+
+**Relationship:**  
+Both the Estimated α and Calibrated α are almost identical for each country; Vietnam shows the highest value, Brunei the lowest (negative value). The rest of the countries have positive values, decreasing from Singapore to the Philippines.
 
 Singapore (SGP): lntfp_est = 7.51 | lntfp_cal = 8.03 — highest in ASEAN
 
@@ -435,53 +428,53 @@ TFP Trajectories — Calibrated α = 1/3
 
 Title: TFP Trajectories Est
 
-Y-axis: Log TFP (range: 5 to 8)
-X-axis: Year (range: 2000 to 2025)
+Y-Axis: Log TFP (range: 5 to 8)
+
+X-Axis: Year (range: 2000 to 2025)
 
 Legend/Series:
-- BRN (blue)
+- BRN (light blue)
 - IDN (red)
 - KHM (teal)
 - LAO (yellow)
 - MYS (purple)
 - PHL (orange)
-- SGP (pink)
+- SGP (dark blue)
 - THA (brown)
-- VNM (light blue)
+- VNM (cyan)
 
 Trends/Relationships:
-- BRN starts highest on the Log TFP scale, showing some decline with fluctuations, but remains highest through the period.
-- MYS consistently second-highest, showing a gradual upward trend.
-- SGP, THA, IDN, and PHL all exhibit gradual increases, clustered near the mid-to-upper ranges.
-- VNM and KHM are at the lowest Log TFP values, with slow, moderate growth over time.
-- LAO remains toward the lower-middle, with an upward trend from 2000 to 2025.
+- "BRN" and "SGP" show the highest Log TFP levels; "SGP" stays relatively flat, while "BRN" shows some decline and fluctuations.
+- "MYS" (purple) is consistently high and shows a steady increase.
+- "IDN," "PHL," "THA," and others are in the middle range, gradually trending upward.
+- "KHM," "LAO," and "VNM" are clustered toward the lower end, but all show a slight increasing trend over time.
+- Across countries, there is a general upward trend in Log TFP from 2000 to 2025, most evident for "MYS," "THA," "VNM."
 
 **[Image 15]**
 
 Title: TFP Trajectories Cal
 
-Y-axis: Log TFP (range: 5.5 to 8.5)
-X-axis: Year (range: 2000 to 2025)
+Y-axis: Log TFP (range approximately 5.5 to 8.2)
+X-axis: Year (range 2000 to 2025)
 
 Legend/Series:
-- BRN (Blue)
-- IDN (Purple)
-- KHM (Teal)
-- LAO (Yellow)
-- MYS (Dark Purple)
-- PHL (Orange)
-- SGP (Light Blue)
-- THA (Brown)
-- VNM (Green)
+- BRN (blue)
+- IDN (maroon)
+- KHM (green)
+- LAO (yellow)
+- MYS (purple)
+- PHL (orange)
+- SGP (light blue)
+- THA (brown)
+- VNM (teal)
 
 Trends/Relationships:
-- SGP (Light Blue) and BRN (Blue) have the highest Log TFP values, remaining above 7.5 throughout the period.
-- SGP consistently leads, with BRN slightly trailing.
-- MYS (Dark Purple) also maintains high Log TFP values, around 7.
-- THA (Brown), IDN (Purple), and PHL (Orange) are in the mid-range, showing gradual increase.
-- VNM (Green) shows steady improvement, starting from the lowest value and increasing over time.
-- KHM (Teal) and LAO (Yellow) remain at the lower end, with modest upward trends.
-- All countries generally show stable or slightly increasing Log TFP trajectories from 2000 to 2025.
+- SGP (light blue) consistently has the highest Log TFP values among the countries/series.
+- MYS (purple) is next, with a noticeable but lower trajectory than SGP.
+- THA (brown), PHL (orange), and IDN (maroon) follow, with gradually increasing trends over the years.
+- LAO (yellow), VNM (teal), and KHM (green) are lower but show gradual increases.
+- BRN (blue) is at the bottom, with the lowest Log TFP values but a slow upward trend.
+- Most countries/series exhibit a generally increasing trend in Log TFP from 2000 to 2025, with some annual fluctuations.
 
 Singapore
 
@@ -560,22 +553,22 @@ Title: Cumulative TFP Growth (2000-2023)
 Legend/Series:
 - ● Cumulative TFP Growth (2000-2023)
 
-X-axis: Initial TFP (2000)
+X-Axis: Initial TFP (2000)
 - Range: 35 to 95
 
-Y-axis: Cumulative TFP Growth (2000-2023)
+Y-Axis: Cumulative TFP Growth (2000-2023)
 - Range: 20 to 80
 
-Data Points (approximate from chart):
-- (38, 75)
-- (44, 80)
-- (56, 50)
-- (70, 40)
+Data points (approximate, based on visual placement):
+- (37, 75)
+- (43, 80)
+- (56, 60)
+- (69, 45)
 - (76, 35)
 - (93, 20)
 
-Trend/Relationship:
-- There is a negative correlation between Initial TFP (2000) and Cumulative TFP Growth (2000-2023): as Initial TFP increases, Cumulative TFP Growth decreases.
+Trends/Relationships:
+- There is a downward trend: higher initial TFP in 2000 is associated with lower cumulative TFP growth over 2000-2023.
 
 Negative relationship: Initial TFP vs. growth
 
