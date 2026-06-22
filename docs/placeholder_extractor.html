@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>placeholder_extractor.py — Visual Guide</title>
+<style>
+  :root{
+    --bg:#0f1116; --panel:#171a21; --panel2:#1d212b; --line:#2a2f3a;
+    --ink:#e7ebf2; --muted:#9aa3b2; --faint:#6b7280;
+    --parse:#3b82f6; --describe:#a855f7; --render:#10b981;
+    --accent:#f59e0b; --chip:#222735;
+    --radius:14px; --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.55;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1080px;margin:0 auto;padding:40px 24px 80px}
+  header.hero{padding:14px 0 26px;border-bottom:1px solid var(--line);margin-bottom:32px}
+  .kicker{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
+  h1{font-size:30px;margin:8px 0 6px;font-family:var(--mono)}
+  .sub{color:var(--muted);max-width:680px}
+  .sub b{color:#cdd4e0}
+  h2{font-size:14px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:46px 0 16px;font-weight:600}
+
+  .pipe{display:grid;grid-template-columns:1fr auto 1fr auto 1fr;align-items:stretch;gap:0}
+  .stage{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:18px 18px 16px;cursor:pointer;transition:.18s;position:relative}
+  .stage:hover{transform:translateY(-3px);border-color:var(--sc)}
+  .stage .num{font-family:var(--mono);font-size:12px;color:var(--sc);font-weight:700}
+  .stage h3{margin:6px 0 4px;font-size:17px}
+  .stage p{margin:0;color:var(--muted);font-size:13px}
+  .stage .net{margin-top:10px;font-family:var(--mono);font-size:11px;color:var(--faint)}
+  .stage[data-s="parse"]{--sc:var(--parse)} .stage[data-s="describe"]{--sc:var(--describe)} .stage[data-s="render"]{--sc:var(--render)}
+  .stage .bar{position:absolute;left:0;top:0;bottom:0;width:4px;border-radius:var(--radius) 0 0 var(--radius);background:var(--sc)}
+  .arrow{display:flex;align-items:center;justify-content:center;color:var(--faint);font-size:22px;padding:0 6px}
+  .flowline{margin:14px 0 0;font-family:var(--mono);font-size:12px;color:var(--faint);text-align:center}
+
+  .filters{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 18px;align-items:center}
+  .chip{font-family:var(--mono);font-size:12px;padding:6px 12px;border-radius:999px;cursor:pointer;background:var(--chip);border:1px solid var(--line);color:var(--muted);transition:.15s}
+  .chip.active{color:var(--ink);border-color:currentColor}
+  .chip[data-f="parse"].active{color:var(--parse)} .chip[data-f="describe"].active{color:var(--describe)}
+  .chip[data-f="render"].active{color:var(--render)} .chip[data-f="all"].active{color:var(--ink)}
+  .spacer{flex:1}
+  .toggleall{font-family:var(--mono);font-size:11px;color:var(--muted);cursor:pointer;background:none;border:1px solid var(--line);border-radius:6px;padding:6px 10px}
+  .toggleall:hover{color:var(--ink)}
+
+  .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+  @media(max-width:760px){.grid{grid-template-columns:1fr}.pipe{grid-template-columns:1fr;gap:10px}.arrow{transform:rotate(90deg);padding:2px 0}}
+  .card{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--sc,var(--line));border-radius:12px;padding:16px 16px 14px;transition:.15s}
+  .card[data-s="parse"]{--sc:var(--parse)} .card[data-s="describe"]{--sc:var(--describe)} .card[data-s="render"]{--sc:var(--render)}
+  .card.hide{display:none}
+  .sig{font-family:var(--mono);font-size:13px;color:var(--ink);word-break:break-word}
+  .tags{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0 8px}
+  .tag{font-family:var(--mono);font-size:10.5px;padding:3px 8px;border-radius:6px;background:var(--chip);color:var(--muted)}
+  .tag.lib{color:#7dd3fc} .tag.stage{color:var(--sc)}
+  .what{font-size:13px;color:var(--ink);margin:8px 0 6px}
+  .why{font-size:12.5px;color:var(--muted)}
+  .why b{color:#cdd4e0;font-weight:600}
+
+  .codebtn{margin-top:12px;font-family:var(--mono);font-size:11px;background:var(--chip);border:1px solid var(--line);color:var(--muted);border-radius:6px;padding:5px 11px;cursor:pointer;transition:.15s}
+  .codebtn:hover{color:var(--ink);border-color:var(--sc)}
+  .code{display:none;margin-top:12px;border-top:1px solid var(--line);padding-top:8px}
+  .code.open{display:block}
+  .ln{padding:6px 0;border-bottom:1px solid rgba(255,255,255,.045)}
+  .ln:last-child{border-bottom:none}
+  .ln code{display:block;white-space:pre-wrap;font-family:var(--mono);font-size:12px;color:#d7e6ff;line-height:1.45}
+  .ln .cmt{display:block;font-size:11.5px;color:var(--muted);margin-top:3px;padding-left:10px;border-left:2px solid var(--sc,var(--line))}
+
+  .libs{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+  @media(max-width:760px){.libs{grid-template-columns:1fr}}
+  .lib{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px}
+  .lib .name{font-family:var(--mono);font-size:13px;color:#7dd3fc}
+  .lib .role{font-size:12.5px;color:var(--muted);margin-top:6px}
+  .lib .std{font-family:var(--mono);font-size:10px;color:var(--faint);margin-top:8px}
+
+  .detect{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line);border-radius:var(--radius);padding:22px}
+  .cases{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:14px}
+  @media(max-width:760px){.cases{grid-template-columns:1fr}}
+  .case{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:14px}
+  .case h4{margin:0 0 6px;font-size:14px}
+  .case code{font-family:var(--mono);font-size:12px;color:var(--accent);display:block;white-space:pre-wrap;margin:8px 0;background:#0b0d12;border:1px solid var(--line);border-radius:6px;padding:8px}
+  .case p{margin:0;font-size:12.5px;color:var(--muted)}
+  .case .ok{color:var(--render)} .case .miss{color:#f87171}
+
+  footer{margin-top:50px;padding-top:20px;border-top:1px solid var(--line);color:var(--faint);font-size:12.5px}
+  .pill{display:inline-block;font-family:var(--mono);font-size:11px;color:var(--muted);background:var(--chip);border:1px solid var(--line);border-radius:999px;padding:3px 10px;margin-right:6px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="hero">
+    <div class="kicker">PPTX → Markdown · component map</div>
+    <h1>placeholder_extractor.py</h1>
+    <p class="sub">Native text via <b>python-pptx</b>, images described once by a vision model and
+    spliced back in place. The model is used <b>only for images</b> — never to re-read text — so cost
+    stays low and text stays lossless. Click a stage to filter; click <b>show code</b> on any card for
+    the annotated source.</p>
+    <div style="margin-top:14px">
+      <span class="pill">no slide rendering</span><span class="pill">image dedup</span>
+      <span class="pill">concurrent calls</span><span class="pill">text-only ⇒ no API key</span>
+    </div>
+  </header>
+
+  <h2>The pipeline</h2>
+  <div class="pipe">
+    <div class="stage" data-s="parse"><span class="bar"></span>
+      <div class="num">STAGE 1</div><h3>Parse</h3>
+      <p>Walk every slide; pull text + tables natively, collect &amp; dedup images.</p>
+      <div class="net">● offline — no network</div></div>
+    <div class="arrow">→</div>
+    <div class="stage" data-s="describe"><span class="bar"></span>
+      <div class="num">STAGE 2</div><h3>Describe</h3>
+      <p>Send each unique image to the vision model, concurrently.</p>
+      <div class="net">● network — images only</div></div>
+    <div class="arrow">→</div>
+    <div class="stage" data-s="render"><span class="bar"></span>
+      <div class="num">STAGE 3</div><h3>Render</h3>
+      <p>Stitch text + image descriptions into the final Markdown.</p>
+      <div class="net">● offline — no network</div></div>
+  </div>
+  <div class="flowline">.pptx → [Parse] → slides + unique images → [Describe] → [Render] → Markdown</div>
+
+  <h2>Functions &amp; types — with annotated source</h2>
+  <div class="filters">
+    <span class="chip active" data-f="all">all</span>
+    <span class="chip" data-f="parse">parse</span>
+    <span class="chip" data-f="describe">describe</span>
+    <span class="chip" data-f="render">render</span>
+    <span class="spacer"></span>
+    <button class="toggleall" id="toggleAll">▾ expand all code</button>
+  </div>
+  <div class="grid" id="cards"></div>
+
+  <h2>Image detection — the key trick</h2>
+  <div class="detect">
+    <p style="margin:0;color:var(--muted);font-size:13.5px">A shape counts as an image if it is a
+    <b style="color:var(--ink)">picture shape</b> <i>or</i> its <b style="color:var(--ink)">fill is a picture</b>.
+    Most extractors check only the first and report "no images" on decks whose charts are pasted as fills.</p>
+    <div class="cases">
+      <div class="case"><h4>Case 1 · true picture shape</h4>
+        <code>shape.shape_type == PICTURE
+&rarr; shape.image.blob</code>
+        <p><span class="ok">✓</span> Ordinary pasted images. The standard API works here.</p></div>
+      <div class="case"><h4>Case 2 · picture <i>fill</i> on a shape</h4>
+        <code>shape.fill.type == PICTURE
+&rarr; &lt;a:blip r:embed&gt; &rarr; related_part().blob</code>
+        <p><span class="miss">✗ standard API misses this</span> — yet it is how this deck stores its
+        charts. We follow the fill relationship to the embedded file.</p></div>
+    </div>
+    <p style="margin:14px 0 0;color:var(--faint);font-size:12.5px">Both read the <b>original embedded
+    file</b> straight from the .pptx ZIP — no LibreOffice, no rendering. Only SVGs are rasterized
+    (PyMuPDF), because the vision API needs raster.</p>
+  </div>
+
+  <h2>Libraries &amp; why</h2>
+  <div class="libs" id="libs"></div>
+
+  <footer>
+    Companion to <span style="font-family:var(--mono)">pptx/placeholder_extractor.py</span> ·
+    prose in <span style="font-family:var(--mono)">docs/placeholder_extractor.md</span>.
+    Stage colors: <span style="color:var(--parse)">parse</span> ·
+    <span style="color:var(--describe)">describe</span> ·
+    <span style="color:var(--render)">render</span>.
+  </footer>
+</div>
+
+<script>
+const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+const FUNCS = [
+  {sig:"ExtractorConfig", stage:"parse", kind:"dataclass", libs:["dataclasses"],
+   what:"Frozen settings: model, image_detail, max_workers, prompt.",
+   why:"One immutable place for every knob so call sites stay clean and runs are reproducible.",
+   lines:[
+     {c:'@dataclass(frozen=True)', n:'Immutable record — settings cannot change mid-run.'},
+     {c:'class ExtractorConfig:', n:'The config type passed into the extractor.'},
+     {c:'    model: str = "gpt-4.1"', n:'Which OpenAI vision model to call.'},
+     {c:'    image_detail: str = "high"', n:'Vision detail; high reads dense charts but costs more input tokens.'},
+     {c:'    max_workers: int = 8', n:'How many images are described in parallel.'},
+     {c:'    prompt: str = _IMAGE_PROMPT', n:'The instruction sent with every image.'},
+   ]},
+  {sig:"TextBlock / ImageBlock / ImageRef / Slide", stage:"parse", kind:"dataclasses", libs:["dataclasses"],
+   what:"Typed records for the data flow.",
+   why:"Self-documenting and safe to refactor — far clearer than loose tuples and dicts.",
+   lines:[
+     {c:'class TextBlock:  text: str', n:'A chunk of native slide text.'},
+     {c:'class ImageBlock: image_id: int', n:'A pointer to a deduped image, not the bytes — so N copies stay cheap.'},
+     {c:'class ImageRef:', n:'One unique image plus the description filled in later.'},
+     {c:'    image_id: int', n:'Stable id shared by every placement of this image.'},
+     {c:'    blob: bytes', n:'Raw image bytes pulled from the .pptx.'},
+     {c:'    ext: str', n:'File extension (png, svg, …) — drives MIME and SVG handling.'},
+     {c:'    description: str = ""', n:'Set after the model runs (mutable, so this one is not frozen).'},
+     {c:'class Slide: number, blocks', n:'A slide as an ordered list of blocks — the list IS the reading order.'},
+   ]},
+  {sig:"_image_from_shape(shape)", stage:"parse", kind:"fn", libs:["python-pptx"],
+   what:"Returns (blob, ext) if the shape carries a picture, else None.",
+   why:"The detector. Case 2 (picture fill) captures fill-based charts the standard API skips.",
+   lines:[
+     {c:'def _image_from_shape(shape):', n:'Detect and extract an image from one shape.'},
+     {c:'    if shape.shape_type == MSO_SHAPE_TYPE.PICTURE:', n:'Case 1: a normal picture shape.'},
+     {c:'        try:', n:'Guard against linked/corrupt pictures.'},
+     {c:'            image = shape.image', n:'python-pptx exposes the embedded image object.'},
+     {c:'            return image.blob, image.ext.lower()', n:'Hand back raw bytes + lowercased extension.'},
+     {c:'        except Exception:', n:'If the image is unreadable…'},
+     {c:'            return None', n:'…treat the shape as having no image.'},
+     {c:'    try:', n:'Case 2: an image used as a shape FILL.'},
+     {c:'        if int(shape.fill.type) == _MSO_FILL_PICTURE:', n:'fill.type == 6 means a picture fill.'},
+     {c:'            blip = shape._element.find(".//" + qn("a:blip"))', n:'Find the <a:blip> element in the shape XML.'},
+     {c:'            if blip is not None:', n:'If a blip is present…'},
+     {c:'                rid = blip.get(qn("r:embed"))', n:'…read its relationship id (rId).'},
+     {c:'                part = shape.part.related_part(rid)', n:'Resolve that rId to the stored image part.'},
+     {c:'                return part.blob, part.partname.split(".")[-1].lower()', n:'Return bytes + ext taken from the part filename.'},
+     {c:'    except Exception:', n:'On any fill / relationship error…'},
+     {c:'        return None', n:'…no image.'},
+     {c:'    return None', n:'Default: this shape carries no image.'},
+   ]},
+  {sig:"_sort_key(shape)", stage:"parse", kind:"fn", libs:["python-pptx"],
+   what:"Sort key = (top, left), guarding None.",
+   why:"Shapes arrive in z-order; this approximates human reading order so placeholders land sensibly.",
+   lines:[
+     {c:'def _sort_key(shape):', n:'Build a reading-order sort key for one shape.'},
+     {c:'    top = shape.top if isinstance(shape.top, int) else 0', n:'Vertical position (0 if unset/None).'},
+     {c:'    left = shape.left if isinstance(shape.left, int) else 0', n:'Horizontal position (0 if unset/None).'},
+     {c:'    return top, left', n:'Sort top→bottom, then left→right.'},
+   ]},
+  {sig:"_iter_blocks(shapes, register)", stage:"parse", kind:"fn", libs:["python-pptx"],
+   what:"Recursive walker yielding TextBlock/ImageBlock; flattens tables.",
+   why:"Turns the shape tree into a flat, ordered block list. register() dedups images on the fly.",
+   lines:[
+     {c:'def _iter_blocks(shapes, register):', n:'Walk shapes and yield ordered blocks.'},
+     {c:'    for shape in sorted(shapes, key=_sort_key):', n:'Visit shapes in reading order.'},
+     {c:'        if shape.shape_type == MSO_SHAPE_TYPE.GROUP:', n:'A group holds nested shapes…'},
+     {c:'            yield from _iter_blocks(shape.shapes, register)', n:'…recurse into it.'},
+     {c:'            continue', n:'Group handled — next shape.'},
+     {c:'        image = _image_from_shape(shape)', n:'Is this shape an image?'},
+     {c:'        if image is not None:', n:'If yes…'},
+     {c:'            yield ImageBlock(register(*image))', n:'…dedup it and yield a placeholder with its id.'},
+     {c:'            continue', n:'Image handled — next shape.'},
+     {c:'        if getattr(shape, "has_text_frame", False):', n:'Does the shape hold text?'},
+     {c:'            text = shape.text_frame.text.strip()', n:'Pull and trim its text.'},
+     {c:'            if text:', n:'Skip empty text frames.'},
+     {c:'                yield TextBlock(text)', n:'Yield a text block.'},
+     {c:'        if getattr(shape, "has_table", False):', n:'Is the shape a table?'},
+     {c:'            rows = [" | ".join(c.text.strip() for c in row.cells)', n:"Join each row's cells into 'a | b | c'…"},
+     {c:'                    for row in shape.table.rows', n:'…over every table row…'},
+     {c:'                    if any(c.text.strip() for c in row.cells)]', n:'…skipping fully-empty rows.'},
+     {c:'            if rows:', n:'If the table had content…'},
+     {c:'                yield TextBlock("\\n".join(rows))', n:'…yield all rows as one text block.'},
+   ]},
+  {sig:"_svg_to_png(svg_bytes)", stage:"describe", kind:"fn", libs:["PyMuPDF"],
+   what:"Rasterizes one SVG to PNG.",
+   why:"Vision APIs accept raster only. Imported lazily, so SVG-free decks never load PyMuPDF.",
+   lines:[
+     {c:'def _svg_to_png(svg_bytes):', n:'Convert a single SVG into PNG bytes.'},
+     {c:'    import fitz', n:'Lazy-import PyMuPDF — only when an SVG actually appears.'},
+     {c:'    return fitz.open(stream=svg_bytes, filetype="svg")[0]', n:'Open the SVG and take its first page…'},
+     {c:'               .get_pixmap().tobytes("png")', n:'…rasterize it and return PNG bytes.'},
+   ]},
+  {sig:"_data_url(blob, ext)", stage:"describe", kind:"fn", libs:["base64"],
+   what:"Builds a data:image/…;base64,… URL.",
+   why:"The Responses API takes images as data URLs; this is the adapter (and SVG→PNG step).",
+   lines:[
+     {c:'def _data_url(blob, ext):', n:'Turn image bytes into a data: URL.'},
+     {c:'    if ext == "svg":', n:'SVG is not accepted by the vision API…'},
+     {c:'        blob, ext = _svg_to_png(blob), "png"', n:'…so rasterize it to PNG first.'},
+     {c:'    mime = "jpeg" if ext in ("jpg","jpeg") else (ext if ext in _RASTER_EXT else "png")', n:'Choose a valid MIME type for the bytes.'},
+     {c:'    return f"data:image/{mime};base64,{base64.b64encode(blob).decode(\'ascii\')}"', n:'Base64-encode the bytes into the URL.'},
+   ]},
+  {sig:"extract(pptx_path)", stage:"render", kind:"method", libs:["—"],
+   what:"Public entry point: parse → (describe if any images) → render.",
+   why:"The one method most callers need; the rest are internal stages.",
+   lines:[
+     {c:'def extract(self, pptx_path):', n:'The public API call.'},
+     {c:'    slides, images = self._parse(pptx_path)', n:'Stage 1: parse text + collect unique images.'},
+     {c:'    if images:', n:'Only touch the model if there are images.'},
+     {c:'        self._describe_all(images)', n:'Stage 2: describe every image.'},
+     {c:'    return self._render(slides, {img.image_id: img for img in images})', n:'Stage 3: stitch the final Markdown.'},
+   ]},
+  {sig:"_parse(pptx_path)", stage:"parse", kind:"method", libs:["python-pptx","hashlib"],
+   what:"Builds every Slide and a SHA-1-keyed registry of unique images.",
+   why:"Stage 1, fully offline. Dedup here means identical logos/charts cost one call, not many.",
+   lines:[
+     {c:'def _parse(self, pptx_path):', n:'Stage 1 — offline parse.'},
+     {c:'    registry: dict[str, ImageRef] = {}', n:'Map sha1(bytes) → unique image.'},
+     {c:'    def register(blob, ext):', n:'Closure: dedup an image, return its id.'},
+     {c:'        digest = hashlib.sha1(blob).hexdigest()', n:'Hash the bytes — identical images match.'},
+     {c:'        ref = registry.get(digest)', n:'Seen this image before?'},
+     {c:'        if ref is None:', n:'If new…'},
+     {c:'            ref = ImageRef(len(registry) + 1, blob, ext)', n:'…assign the next id and keep the bytes.'},
+     {c:'            registry[digest] = ref', n:'Store it in the registry.'},
+     {c:'        return ref.image_id', n:'Return the stable id (new or existing).'},
+     {c:'    presentation = Presentation(str(pptx_path))', n:'Open the .pptx with python-pptx.'},
+     {c:'    slides = [Slide(number, list(_iter_blocks(slide.shapes, register)))', n:'Build each Slide from its ordered blocks…'},
+     {c:'              for number, slide in enumerate(presentation.slides, start=1)]', n:'…numbered from 1.'},
+     {c:'    images = list(registry.values())', n:'The set of unique images.'},
+     {c:'    placements = sum(isinstance(b, ImageBlock) for s in slides for b in s.blocks)', n:'Count image placements (including duplicates).'},
+     {c:'    logger.info("%d slides, %d unique images (%d placements)", …)', n:'Log the parse summary.'},
+     {c:'    return slides, images', n:'Hand both back to extract().'},
+   ]},
+  {sig:"_describe_all(images)", stage:"describe", kind:"method", libs:["concurrent.futures","openai"],
+   what:"Describes all images in a bounded thread pool.",
+   why:"Stage 2. Calls are I/O-bound, so concurrency collapses wall time. Runs only if images exist.",
+   lines:[
+     {c:'def _describe_all(self, images):', n:'Stage 2 — describe every unique image.'},
+     {c:'    client = self._client()', n:'Build the OpenAI client once for all calls.'},
+     {c:'    workers = min(self.config.max_workers, len(images))', n:'Never spawn more threads than images.'},
+     {c:'    logger.info("describing %d images …", …)', n:'Log the plan.'},
+     {c:'    with ThreadPoolExecutor(max_workers=workers) as pool:', n:'Open a bounded thread pool…'},
+     {c:'        pool.map(lambda img: self._describe(client, img), images)', n:'…describe all images in parallel.'},
+   ]},
+  {sig:"_describe(client, image)", stage:"describe", kind:"method", libs:["openai"],
+   what:"Sends prompt + image to the model; stores the description. Per-image try/except.",
+   why:"The single model call. Isolated failures can't crash the whole run.",
+   lines:[
+     {c:'def _describe(self, client, image):', n:'Describe ONE image.'},
+     {c:'    try:', n:'Isolate failures so one bad image cannot sink the run.'},
+     {c:'        response = client.responses.create(', n:'Call the Responses API…'},
+     {c:'            model=self.config.model,', n:'…with the configured model…'},
+     {c:'            input=[{"role": "user", "content": [', n:'…sending one user message that contains…'},
+     {c:'                {"type": "input_text", "text": self.config.prompt},', n:'…the instruction prompt…'},
+     {c:'                {"type": "input_image",', n:'…and the image itself…'},
+     {c:'                 "image_url": _data_url(image.blob, image.ext),', n:'…encoded as a data URL…'},
+     {c:'                 "detail": self.config.image_detail}]}],', n:'…at the configured detail level.'},
+     {c:'        )', n:'End of the request.'},
+     {c:'        image.description = (response.output_text or "").strip()', n:'Store the model output on the ImageRef.'},
+     {c:'    except Exception as exc:', n:'On any error…'},
+     {c:'        logger.warning("image %d failed: %s", image.image_id, exc)', n:'…log a warning…'},
+     {c:'        image.description = f"_[image description failed: {exc}]_"', n:'…and leave an inline note in place of the description.'},
+   ]},
+  {sig:"_render(slides, by_id)", stage:"render", kind:"method", libs:["—"],
+   what:"Emits text as-is and replaces each ImageBlock with **[Image n]** + its description.",
+   why:"Stage 3. Pure string assembly — deterministic, offline, easy to test.",
+   lines:[
+     {c:'def _render(slides, by_id):', n:'Stage 3 — assemble the Markdown.'},
+     {c:'    sections = []', n:'One string per slide.'},
+     {c:'    for slide in slides:', n:'Walk slides in order.'},
+     {c:'        parts = []', n:'Pieces of this slide body.'},
+     {c:'        for block in slide.blocks:', n:'Walk its blocks in reading order.'},
+     {c:'            if isinstance(block, TextBlock):', n:'A text block…'},
+     {c:'                parts.append(block.text)', n:'…emit it verbatim.'},
+     {c:'            else:', n:'An image block…'},
+     {c:'                desc = by_id[block.image_id].description or "_[no description]_"', n:'…look up its description by id…'},
+     {c:'                parts.append(f"**[Image {block.image_id}]**\\n\\n{desc}")', n:'…emit a label plus the description.'},
+     {c:'        body = "\\n\\n".join(parts) if parts else "_[no content]_"', n:'Join the parts, or note an empty slide.'},
+     {c:'        sections.append(f"## Slide {slide.number}\\n\\n{body}")', n:'Add the slide heading and body.'},
+     {c:'    return "\\n\\n---\\n\\n".join(sections) + "\\n"', n:'Join slides with horizontal rules; trailing newline.'},
+   ]},
+  {sig:"_client()", stage:"describe", kind:"method", libs:["openai","os"],
+   what:"Lazily builds the OpenAI client; errors clearly if the key is missing.",
+   why:"Called only when images exist — so a text-only deck needs no key and no openai package.",
+   lines:[
+     {c:'def _client():', n:'Build the OpenAI client on demand.'},
+     {c:'    if not os.environ.get("OPENAI_API_KEY"):', n:'No key configured…'},
+     {c:'        raise RuntimeError("OPENAI_API_KEY is not set, …")', n:'…fail with a clear message.'},
+     {c:'    from openai import OpenAI', n:'Lazy import — text-only decks never load it.'},
+     {c:'    return OpenAI()', n:'Client reads the key from the environment.'},
+   ]},
+  {sig:"main(argv)", stage:"render", kind:"fn", libs:["argparse","logging","pathlib"],
+   what:"CLI: parse args, configure logging, run, write output/<name>.md.",
+   why:"Thin shell around the class so the library stays import-friendly.",
+   lines:[
+     {c:'def main(argv=None):', n:'Command-line entry point.'},
+     {c:'    parser = argparse.ArgumentParser(description=__doc__, …)', n:'Define the CLI (help from the module docstring).'},
+     {c:'    parser.add_argument("pptx", type=Path, …)', n:'Required: path to the .pptx.'},
+     {c:'    parser.add_argument("-o", "--out", type=Path, …)', n:'Optional output path.'},
+     {c:'    parser.add_argument("-m", "--model", …)', n:'Optional model override.'},
+     {c:'    parser.add_argument("--detail", choices=["low","high","auto"])', n:'Optional vision detail level.'},
+     {c:'    args = parser.parse_args(argv)', n:'Parse the arguments.'},
+     {c:'    logging.basicConfig(level=logging.INFO, …)', n:'Send progress logs to stderr.'},
+     {c:'    logging.getLogger("httpx").setLevel(logging.WARNING)', n:'Mute per-request HTTP noise.'},
+     {c:'    if not args.pptx.exists(): parser.error(…)', n:'Fail early if the file is missing.'},
+     {c:'    out_path = args.out or Path("output") / f"{args.pptx.stem}.md"', n:'Default to output/<name>.md.'},
+     {c:'    config = ExtractorConfig(model=args.model, image_detail=args.detail)', n:'Build config from the args.'},
+     {c:'    markdown = PlaceholderExtractor(config).extract(args.pptx)', n:'Run the extractor.'},
+     {c:'    out_path.parent.mkdir(parents=True, exist_ok=True)', n:'Ensure the output folder exists.'},
+     {c:'    out_path.write_text(markdown, encoding="utf-8")', n:'Write the Markdown file.'},
+     {c:'    logger.info("written to %s", out_path)', n:'Report where it was written.'},
+   ]},
+];
+
+const LIBS = [
+  {name:"python-pptx", std:false, role:"Open the deck, walk shapes/groups, read text + tables, resolve image relationships in the OOXML package."},
+  {name:"PyMuPDF (fitz)", std:false, role:"Rasterize SVG images to PNG. Lazy-imported — only loaded when a deck actually has SVGs."},
+  {name:"openai", std:false, role:"Send each image to the vision model (Responses API). Lazy-imported — text-only decks skip it."},
+  {name:"hashlib", std:true, role:"SHA-1 of image bytes to deduplicate identical images (describe once, reuse)."},
+  {name:"base64", std:true, role:"Encode image bytes into a data: URL for the API."},
+  {name:"concurrent.futures", std:true, role:"Thread pool to describe images in parallel (calls are I/O-bound)."},
+  {name:"dataclasses", std:true, role:"Small typed records for slides, blocks, images and config."},
+  {name:"logging", std:true, role:"Structured progress to stderr instead of print()."},
+  {name:"argparse · pathlib · os", std:true, role:"CLI parsing, filesystem paths, reading the API key from the environment."},
+];
+
+const cards = document.getElementById('cards');
+FUNCS.forEach(f => {
+  const el = document.createElement('div');
+  el.className = 'card'; el.dataset.s = f.stage;
+  const code = f.lines ? `<button class="codebtn">▾ show code</button>
+    <div class="code">${f.lines.map(L=>`<div class="ln"><code>${esc(L.c)}</code><span class="cmt">${esc(L.n)}</span></div>`).join('')}</div>` : '';
+  el.innerHTML = `
+    <div class="sig">${esc(f.sig)}</div>
+    <div class="tags"><span class="tag stage">${f.stage}</span><span class="tag">${f.kind}</span>
+      ${f.libs.map(l=>`<span class="tag lib">${esc(l)}</span>`).join('')}</div>
+    <div class="what">${f.what}</div>
+    <div class="why"><b>Why:</b> ${f.why}</div>${code}`;
+  cards.appendChild(el);
+});
+
+const libs = document.getElementById('libs');
+LIBS.forEach(l => {
+  const el = document.createElement('div'); el.className = 'lib';
+  el.innerHTML = `<div class="name">${esc(l.name)}</div><div class="role">${l.role}</div>
+    <div class="std">${l.std ? 'standard library' : 'third-party · pip install'}</div>`;
+  libs.appendChild(el);
+});
+
+function bindCode(btn){
+  btn.onclick = () => {
+    const open = btn.nextElementSibling.classList.toggle('open');
+    btn.textContent = open ? '▴ hide code' : '▾ show code';
+  };
+}
+document.querySelectorAll('.codebtn').forEach(bindCode);
+
+function filter(stage){
+  document.querySelectorAll('.card').forEach(c => c.classList.toggle('hide', stage!=='all' && c.dataset.s!==stage));
+  document.querySelectorAll('.chip').forEach(c => c.classList.toggle('active', c.dataset.f===stage));
+}
+document.querySelectorAll('.chip').forEach(c => c.onclick = () => filter(c.dataset.f));
+document.querySelectorAll('.stage').forEach(s => s.onclick = () => { filter(s.dataset.s); cards.scrollIntoView({behavior:'smooth',block:'start'}); });
+
+const toggleAll = document.getElementById('toggleAll');
+toggleAll.onclick = () => {
+  const expand = toggleAll.textContent.includes('expand');
+  document.querySelectorAll('.code').forEach(c => c.classList.toggle('open', expand));
+  document.querySelectorAll('.codebtn').forEach(b => b.textContent = expand ? '▴ hide code' : '▾ show code');
+  toggleAll.textContent = expand ? '▴ collapse all code' : '▾ expand all code';
+};
+</script>
+</body>
+</html>
