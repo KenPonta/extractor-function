@@ -1,55 +1,26 @@
-#!/usr/bin/env python3
-"""Extract a PowerPoint deck to Markdown using native text + image placeholders.
-
-Strategy
---------
-Text is read directly from the file with ``python-pptx`` (free, lossless). Every
-embedded image is replaced, in reading order, with an ``[[IMAGE_n]]`` placeholder;
-each unique image is described once by an OpenAI vision model and spliced back into
-its slot. The model is therefore used *only* for images — never to re-transcribe
-text it could already read — which keeps output (the dominant cost) small.
-
-Images are read straight out of the ``.pptx`` package (a ZIP of OOXML parts). This
-catches both true picture shapes and pictures used as a shape *fill* (how many decks
-store charts), neither of which requires rendering the slide.
-
-Public API
-----------
-    from placeholder_extractor import PlaceholderExtractor
-    md = PlaceholderExtractor().extract(Path("deck.pptx"))
-
-Dependencies
-------------
-    pip install python-pptx pymupdf openai      # pymupdf only used when a deck has SVGs
-
-Environment
------------
-    OPENAI_API_KEY   required only if the deck contains images
-"""
-
 from __future__ import annotations
 
 import argparse
 import base64
 import hashlib
 import logging
-import os
 import sys
+import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
 from pathlib import Path
 
 from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 from pptx.oxml.ns import qn
 
-__all__ = ["PlaceholderExtractor", "ExtractorConfig"]
+__all__ = ["PlaceholderExtractor", "ExtractorConfig", "pptx_to_xml", "pptx_to_markdown"]
 
 logger = logging.getLogger(__name__)
 
 # OOXML/enum constants
 _MSO_FILL_PICTURE = 6                       # MSO_FILL.PICTURE: a shape filled with an image
 _RASTER_EXT = {"png", "jpg", "jpeg", "gif", "webp"}   # formats the vision API accepts directly
+_IMAGE_DETAIL = "high"                      # vision detail level; "high" reads dense charts best
 
 _IMAGE_PROMPT = (
     "This image was taken from a presentation slide. If it is a chart, graph, table, "
@@ -64,49 +35,45 @@ _IMAGE_PROMPT = (
 # --------------------------------------------------------------------------- #
 # Configuration
 # --------------------------------------------------------------------------- #
-@dataclass(frozen=True)
 class ExtractorConfig:
-    """Tunable settings for an extraction run."""
+    """Tunable settings for an extraction run (defaults live as class attributes)."""
 
-    model: str = "gpt-4.1"          # any vision-capable OpenAI model
-    image_detail: str = "high"      # "low" | "high" | "auto" — "high" reads dense charts better
-    max_workers: int = 8            # images described concurrently
-    prompt: str = _IMAGE_PROMPT
+    model = "gpt-4.1"               # any vision-capable OpenAI model
+    max_workers = 8                 # images described concurrently
+    prompt = _IMAGE_PROMPT
+
+    # __init__ defaults reuse the class attributes above, so there is no duplication
+    # and main() can still read e.g. ExtractorConfig.model.
+    def __init__(self, model=model, max_workers=max_workers, prompt=prompt):
+        self.model = model
+        self.max_workers = max_workers
+        self.prompt = prompt
 
 
 # --------------------------------------------------------------------------- #
 # Data model
 # --------------------------------------------------------------------------- #
-@dataclass(frozen=True)
-class TextBlock:
-    """A run of native text pulled from the slide."""
-
-    text: str
-
-
-@dataclass(frozen=True)
-class ImageBlock:
-    """A reference to a deduplicated image, resolved to a description after the model runs."""
-
-    image_id: int
-
-
-@dataclass
+# A slide's content is a list of (kind, value) tuples:
+#   ("text",  str)  -> a run of native text
+#   ("image", int)  -> a placeholder pointing at a unique image by its id
 class ImageRef:
     """One unique image and the description the model produced for it."""
 
-    image_id: int
-    blob: bytes
-    ext: str
-    description: str = ""
+    def __init__(self, image_id: int, blob: bytes, ext: str, description: str = ""):
+        self.image_id = image_id
+        self.blob = blob
+        self.ext = ext
+        self.description = description
 
 
-@dataclass
 class Slide:
     """An ordered list of text/image blocks for a single slide."""
 
-    number: int
-    blocks: list[TextBlock | ImageBlock] = field(default_factory=list)
+    def __init__(self, number: int, blocks: list | None = None):
+        self.number = number
+        # `blocks or []` would be wrong if an empty list were passed intentionally,
+        # so use an explicit None check to give each Slide its own fresh list.
+        self.blocks = blocks if blocks is not None else []
 
 
 # --------------------------------------------------------------------------- #
@@ -145,7 +112,7 @@ def _sort_key(shape) -> tuple[int, int]:
 
 
 def _iter_blocks(shapes, register):
-    """Yield TextBlock/ImageBlock for each shape in reading order, recursing groups.
+    """Yield ("text", str) / ("image", id) tuples per shape in reading order, recursing groups.
 
     ``register`` deduplicates an image and returns its stable ``image_id``.
     """
@@ -156,20 +123,20 @@ def _iter_blocks(shapes, register):
 
         image = _image_from_shape(shape)
         if image is not None:
-            yield ImageBlock(register(*image))
+            yield ("image", register(*image))
             continue
 
         if getattr(shape, "has_text_frame", False):
             text = shape.text_frame.text.strip()
             if text:
-                yield TextBlock(text)
+                yield ("text", text)
 
         if getattr(shape, "has_table", False):
             rows = [" | ".join(c.text.strip() for c in row.cells)
                     for row in shape.table.rows
                     if any(c.text.strip() for c in row.cells)]
             if rows:
-                yield TextBlock("\n".join(rows))
+                yield ("text", "\n".join(rows))
 
 
 # --------------------------------------------------------------------------- #
@@ -198,10 +165,20 @@ class PlaceholderExtractor:
 
     def extract(self, pptx_path: Path) -> str:
         """Return the full deck as Markdown."""
+        slides, by_id = self._run(pptx_path)
+        return self._render(slides, by_id)
+
+    def extract_xml(self, pptx_path: Path) -> str:
+        """Return the full deck as XML."""
+        slides, by_id = self._run(pptx_path)
+        return self._render_xml(slides, by_id)
+
+    def _run(self, pptx_path: Path) -> tuple[list[Slide], dict[int, ImageRef]]:
+        """Parse the deck, then describe its images. Returns (slides, {image_id: ImageRef})."""
         slides, images = self._parse(pptx_path)
         if images:
             self._describe_all(images)
-        return self._render(slides, {img.image_id: img for img in images})
+        return slides, {img.image_id: img for img in images}
 
     # -- 1. parse: collect slides and the set of unique images -------------- #
     def _parse(self, pptx_path: Path) -> tuple[list[Slide], list[ImageRef]]:
@@ -221,14 +198,15 @@ class PlaceholderExtractor:
             for number, slide in enumerate(presentation.slides, start=1)
         ]
         images = list(registry.values())
-        placements = sum(isinstance(b, ImageBlock) for s in slides for b in s.blocks)
+        placements = sum(kind == "image" for s in slides for kind, _ in s.blocks)
         logger.info("%d slides, %d unique images (%d placements)",
                     len(slides), len(images), placements)
         return slides, images
 
     # -- 2. describe: one model call per unique image, concurrently --------- #
     def _describe_all(self, images: list[ImageRef]) -> None:
-        client = self._client()
+        from openai import OpenAI            # lazy import keeps text-only runs light
+        client = OpenAI()                    # reads OPENAI_API_KEY from the environment
         workers = min(self.config.max_workers, len(images))
         logger.info("describing %d images via %s (%d concurrent)",
                     len(images), self.config.model, workers)
@@ -243,7 +221,7 @@ class PlaceholderExtractor:
                     {"type": "input_text", "text": self.config.prompt},
                     {"type": "input_image",
                      "image_url": _data_url(image.blob, image.ext),
-                     "detail": self.config.image_detail}]}],
+                     "detail": _IMAGE_DETAIL}]}],
             )
             image.description = (response.output_text or "").strip()
         except Exception as exc:                            # isolate per-image failures
@@ -251,27 +229,58 @@ class PlaceholderExtractor:
             image.description = f"_[image description failed: {exc}]_"
 
     # -- 3. render: stitch text and resolved image descriptions ------------- #
-    @staticmethod
-    def _render(slides: list[Slide], by_id: dict[int, ImageRef]) -> str:
+    def _render(self, slides: list[Slide], by_id: dict[int, ImageRef]) -> str:
         sections = []
         for slide in slides:
             parts = []
-            for block in slide.blocks:
-                if isinstance(block, TextBlock):
-                    parts.append(block.text)
+            for kind, value in slide.blocks:
+                if kind == "text":
+                    parts.append(value)
                 else:
-                    desc = by_id[block.image_id].description or "_[no description]_"
-                    parts.append(f"**[Image {block.image_id}]**\n\n{desc}")
+                    desc = by_id[value].description or "_[no description]_"
+                    parts.append(f"**[Image {value}]**\n\n{desc}")
             body = "\n\n".join(parts) if parts else "_[no content]_"
             sections.append(f"## Slide {slide.number}\n\n{body}")
         return "\n\n---\n\n".join(sections) + "\n"
 
-    @staticmethod
-    def _client():
-        if not os.environ.get("OPENAI_API_KEY"):
-            raise RuntimeError("OPENAI_API_KEY is not set, but the deck has images to describe.")
-        from openai import OpenAI                           # lazy import keeps text-only runs light
-        return OpenAI()
+    def _render_xml(self, slides: list[Slide], by_id: dict[int, ImageRef]) -> str:
+        """Stage 3 (XML): the same data as well-formed XML. ElementTree escapes content for us."""
+        deck = ET.Element("deck")
+        for slide in slides:
+            slide_el = ET.SubElement(deck, "slide", number=str(slide.number))
+            for kind, value in slide.blocks:
+                if kind == "text":
+                    ET.SubElement(slide_el, "text").text = value
+                else:
+                    ref = by_id[value]
+                    img_el = ET.SubElement(slide_el, "image", id=str(value), ext=ref.ext)
+                    img_el.text = ref.description
+        ET.indent(deck)                                      # pretty-print (Python 3.9+)
+        return '<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(deck, encoding="unicode") + "\n"
+
+
+# --------------------------------------------------------------------------- #
+# Convenience functions — import these from another module
+# --------------------------------------------------------------------------- #
+def pptx_to_xml(file_path, output_dir, config: ExtractorConfig | None = None) -> Path:
+    """Extract `file_path` to XML and write `<output_dir>/<name>.xml`. Returns the output path."""
+    src = Path(file_path)
+    text = PlaceholderExtractor(config).extract_xml(src)
+    return _write(text, output_dir, src.stem, ".xml")
+
+
+def pptx_to_markdown(file_path, output_dir, config: ExtractorConfig | None = None) -> Path:
+    """Extract `file_path` to Markdown and write `<output_dir>/<name>.md`. Returns the output path."""
+    src = Path(file_path)
+    text = PlaceholderExtractor(config).extract(src)
+    return _write(text, output_dir, src.stem, ".md")
+
+
+def _write(text: str, output_dir, stem: str, ext: str) -> Path:
+    out_path = Path(output_dir) / f"{stem}{ext}"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(text, encoding="utf-8")
+    return out_path
 
 
 # --------------------------------------------------------------------------- #
@@ -282,8 +291,8 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("pptx", type=Path, help="path to the .pptx file")
     parser.add_argument("-o", "--out", type=Path, help="output .md path (default: output/<name>.md)")
     parser.add_argument("-m", "--model", default=ExtractorConfig.model, help="OpenAI model")
-    parser.add_argument("--detail", default=ExtractorConfig.image_detail,
-                        choices=["low", "high", "auto"], help="image detail level")
+    parser.add_argument("--format", default="md", choices=["md", "xml"],
+                        help="output format (default: md)")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stderr)
@@ -291,12 +300,14 @@ def main(argv: list[str] | None = None) -> None:
     if not args.pptx.exists():
         parser.error(f"file not found: {args.pptx}")
 
-    out_path = args.out or Path("output") / f"{args.pptx.stem}.md"
-    config = ExtractorConfig(model=args.model, image_detail=args.detail)
-    markdown = PlaceholderExtractor(config).extract(args.pptx)
+    out_path = args.out or Path("output") / f"{args.pptx.stem}.{args.format}"
+    config = ExtractorConfig(model=args.model)
+    extractor = PlaceholderExtractor(config)
+    text = (extractor.extract_xml(args.pptx) if args.format == "xml"
+            else extractor.extract(args.pptx))
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(markdown, encoding="utf-8")
+    out_path.write_text(text, encoding="utf-8")
     logger.info("written to %s", out_path)
 
 
