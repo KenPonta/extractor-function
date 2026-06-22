@@ -5,7 +5,7 @@ import base64
 import hashlib
 import logging
 import sys
-import xml.etree.ElementTree as ET
+import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -74,6 +74,40 @@ class Slide:
         # `blocks or []` would be wrong if an empty list were passed intentionally,
         # so use an explicit None check to give each Slide its own fresh list.
         self.blocks = blocks if blocks is not None else []
+
+
+# --------------------------------------------------------------------------- #
+# Input validation
+# --------------------------------------------------------------------------- #
+def _validate_pptx(path) -> Path:
+    """Return `path` as a Path if it is a real PowerPoint (.pptx), else raise.
+
+    A .pptx is a ZIP of OOXML parts. We confirm three things, cheap to strict:
+      1. the file exists,
+      2. it has a .pptx extension,
+      3. it is a valid ZIP that contains ``ppt/presentation.xml`` — the part that
+         makes it a *presentation* (a .docx/.xlsx is also an OOXML ZIP but lacks it,
+         and a non-Office file renamed to .pptx is not a ZIP at all).
+    """
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f"file not found: {path}")
+    if path.suffix.lower() != ".pptx":
+        raise ValueError(f"expected a .pptx file, got: {path.name}")
+    if not zipfile.is_zipfile(path):
+        raise ValueError(f"not a valid .pptx (not an OOXML/ZIP package): {path.name}")
+    with zipfile.ZipFile(path) as archive:
+        if "ppt/presentation.xml" not in archive.namelist():
+            raise ValueError(
+                f"file is a ZIP but not a PowerPoint presentation "
+                f"(missing ppt/presentation.xml): {path.name}")
+    return path
+
+
+def _xml_attr(value) -> str:
+    """Escape a value for safe use inside an XML attribute (filename, data-type)."""
+    return (str(value).replace("&", "&amp;").replace('"', "&quot;")
+            .replace("<", "&lt;").replace(">", "&gt;"))
 
 
 # --------------------------------------------------------------------------- #
@@ -168,13 +202,14 @@ class PlaceholderExtractor:
         slides, by_id = self._run(pptx_path)
         return self._render(slides, by_id)
 
-    def extract_xml(self, pptx_path: Path) -> str:
-        """Return the full deck as XML."""
+    def extract_xml(self, pptx_path: Path, data_type: str = "PPTX") -> str:
+        """Return the full deck as XML in the <documents>/<document> template."""
         slides, by_id = self._run(pptx_path)
-        return self._render_xml(slides, by_id)
+        return self._render_xml(slides, by_id, Path(pptx_path).name, data_type=data_type)
 
     def _run(self, pptx_path: Path) -> tuple[list[Slide], dict[int, ImageRef]]:
         """Parse the deck, then describe its images. Returns (slides, {image_id: ImageRef})."""
+        pptx_path = _validate_pptx(pptx_path)           # gate: must be a real .pptx
         slides, images = self._parse(pptx_path)
         if images:
             self._describe_all(images)
@@ -243,29 +278,32 @@ class PlaceholderExtractor:
             sections.append(f"## Slide {slide.number}\n\n{body}")
         return "\n\n---\n\n".join(sections) + "\n"
 
-    def _render_xml(self, slides: list[Slide], by_id: dict[int, ImageRef]) -> str:
-        """Stage 3 (XML): the same data as well-formed XML. ElementTree escapes content for us."""
-        deck = ET.Element("deck")
-        for slide in slides:
-            slide_el = ET.SubElement(deck, "slide", number=str(slide.number))
-            for kind, value in slide.blocks:
-                if kind == "text":
-                    ET.SubElement(slide_el, "text").text = value
-                else:
-                    ref = by_id[value]
-                    img_el = ET.SubElement(slide_el, "image", id=str(value), ext=ref.ext)
-                    img_el.text = ref.description
-        ET.indent(deck)                                      # pretty-print (Python 3.9+)
-        return '<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(deck, encoding="unicode") + "\n"
+    def _render_xml(self, slides: list[Slide], by_id: dict[int, ImageRef],
+                    filename: str, index: int = 1, data_type: str = "PPTX") -> str:
+        """Wrap the extracted content in the <documents>/<document> template.
+
+        Attributes (filename, data-type) are escaped; the body is the slide content
+        from the Markdown renderer, kept raw to match the reference template.
+        """
+        body = self._render(slides, by_id)                  # slide text + image descriptions
+        return (
+            "<documents>\n"
+            f'  <document index="{index}" filename="{_xml_attr(filename)}"'
+            f' data-type="{_xml_attr(data_type)}">\n'
+            f"{body}"
+            "  </document>\n"
+            "</documents>\n"
+        )
 
 
 # --------------------------------------------------------------------------- #
 # Convenience functions — import these from another module
 # --------------------------------------------------------------------------- #
-def pptx_to_xml(file_path, output_dir, config: ExtractorConfig | None = None) -> Path:
+def pptx_to_xml(file_path, output_dir, config: ExtractorConfig | None = None,
+                data_type: str = "PPTX") -> Path:
     """Extract `file_path` to XML and write `<output_dir>/<name>.xml`. Returns the output path."""
     src = Path(file_path)
-    text = PlaceholderExtractor(config).extract_xml(src)
+    text = PlaceholderExtractor(config).extract_xml(src, data_type=data_type)
     return _write(text, output_dir, src.stem, ".xml")
 
 
@@ -289,22 +327,26 @@ def _write(text: str, output_dir, stem: str, ext: str) -> Path:
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("pptx", type=Path, help="path to the .pptx file")
-    parser.add_argument("-o", "--out", type=Path, help="output .md path (default: output/<name>.md)")
+    parser.add_argument("-o", "--out", type=Path,
+                        help="output path (default: output/<name>.<format>)")
     parser.add_argument("-m", "--model", default=ExtractorConfig.model, help="OpenAI model")
-    parser.add_argument("--format", default="md", choices=["md", "xml"],
-                        help="output format (default: md)")
+    parser.add_argument("--format", default="xml", choices=["xml", "md"],
+                        help="output format (default: xml)")
+    parser.add_argument("--data-type", default="PPTX",
+                        help="value for the <document data-type> attribute (default: PPTX)")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stderr)
     logging.getLogger("httpx").setLevel(logging.WARNING)    # mute per-request HTTP noise
-    if not args.pptx.exists():
-        parser.error(f"file not found: {args.pptx}")
 
     out_path = args.out or Path("output") / f"{args.pptx.stem}.{args.format}"
     config = ExtractorConfig(model=args.model)
     extractor = PlaceholderExtractor(config)
-    text = (extractor.extract_xml(args.pptx) if args.format == "xml"
-            else extractor.extract(args.pptx))
+    try:
+        text = (extractor.extract_xml(args.pptx, data_type=args.data_type)
+                if args.format == "xml" else extractor.extract(args.pptx))
+    except (FileNotFoundError, ValueError) as exc:      # bad/missing/non-pptx input
+        parser.error(str(exc))                          # clean "error: …", no traceback
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(text, encoding="utf-8")
