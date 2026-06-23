@@ -36,7 +36,6 @@ class ExtractorConfig:
         self.max_workers = max_workers
         self.prompt = prompt
 
-
 class ImageRef:
     def __init__(self, image_id: int, blob: bytes, ext: str, description: str = ""):
         self.image_id = image_id
@@ -167,23 +166,29 @@ class PlaceholderExtractor:
         workers = min(self.config.max_workers, len(images))
         logger.info("describing %d images via %s (%d concurrent)",
                     len(images), self.config.model, workers)
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            pool.map(lambda img: self._describe(client, img), images)
 
-    def _describe(self, client, image: ImageRef):
-        try:
-            response = client.responses.create(
-                model=self.config.model,
-                input=[{"role": "user", "content": [
-                    {"type": "input_text", "text": self.config.prompt},
-                    {"type": "input_image",
-                     "image_url": _data_url(image.blob, image.ext),
-                     "detail": _IMAGE_DETAIL}]}],
-            )
-            image.description = (response.output_text or "").strip()
-        except Exception as exc:
-            logger.warning("image %d failed: %s", image.image_id, exc)
-            image.description = f"[image description failed: {exc}]"
+        def describe(image):
+            try:
+                response = client.responses.create(
+                    model=self.config.model,
+                    # input=[{"role": "user", "content": [
+                    #     {"type": "input_text", "text": self.config.prompt},
+                    #     {"type": "input_image",
+                    #      "image_url": _data_url(image.blob, image.ext),
+                    #      "detail": _IMAGE_DETAIL}]}],
+                    input = [
+                        {"role": "system","content" : "you are to describe a graph"},
+                        {"role": "user","content" : "graph of SEA GDP"},
+                        
+                    ]
+                )
+                image.description = (response.output_text or "").strip()
+            except Exception as exc:
+                logger.warning("image %d failed: %s", image.image_id, exc)
+                image.description = f"[image description failed: {exc}]"
+
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            pool.map(describe, images)
 
     def _render_xml(self, slides, by_id, filename, index=1, data_type="PPTX") -> str:
         slide_texts = []
