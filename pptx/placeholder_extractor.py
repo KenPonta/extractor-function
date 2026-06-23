@@ -1,11 +1,8 @@
-from __future__ import annotations
-
 import argparse
 import base64
 import hashlib
 import logging
 import sys
-import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -13,30 +10,25 @@ from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 from pptx.oxml.ns import qn
 
-
 logger = logging.getLogger(__name__)
 
-_MSO_FILL_PICTURE = 6                       # MSO_FILL.PICTURE: a shape filled with an image
-_RASTER_EXT = {"png", "jpg", "jpeg", "gif", "webp"}   # formats the vision API accepts directly
-_IMAGE_DETAIL = "high"                      # vision detail level; "high" reads dense charts best
+_MSO_FILL_PICTURE = 6
+_RASTER_EXT = {"png", "jpg", "jpeg", "gif", "webp"}
+_IMAGE_DETAIL = "high"
 
 _IMAGE_PROMPT = (
     "This image was taken from a presentation slide. If it is a chart, graph, table, "
-    "diagram, or figure, extract its content as clean Markdown: title, axis labels and "
-    "ranges, legend/series, and the data, trends, or relationships it conveys. If it is a "
-    "logo, icon, or purely decorative background carrying no information, reply with exactly: "
-    "(decorative — no data). Do not invent anything not visible. "
-    "Output raw Markdown only; do not wrap your answer in a code fence."
+    "diagram, or figure, describe its content as plain text: title, axis labels and "
+    "ranges, legend/series, and the data, trends, or relationships it conveys. If it is "
+    "a logo, icon, or purely decorative background with no information, reply with exactly: "
+    "(decorative, no data). Do not invent anything not visible, and do not wrap your reply "
+    "in a code fence."
 )
 
 
-# --------------------------------------------------------------------------- #
-# Configuration
-# --------------------------------------------------------------------------- #
 class ExtractorConfig:
-
-    model = "gpt-4.1"               # any vision-capable OpenAI model
-    max_workers = 8                 # images described concurrently
+    model = "gpt-4.1"
+    max_workers = 8
     prompt = _IMAGE_PROMPT
 
     def __init__(self, model=model, max_workers=max_workers, prompt=prompt):
@@ -54,65 +46,35 @@ class ImageRef:
 
 
 class Slide:
-    """An ordered list of text/image blocks for a single slide."""
-
     def __init__(self, number: int, blocks: list | None = None):
         self.number = number
-        # `blocks or []` would be wrong if an empty list were passed intentionally,
-        # so use an explicit None check to give each Slide its own fresh list.
         self.blocks = blocks if blocks is not None else []
 
 
-# --------------------------------------------------------------------------- #
-# Input validation
-# --------------------------------------------------------------------------- #
 def _validate_pptx(path) -> Path:
-    """Return `path` as a Path if it is a real PowerPoint (.pptx), else raise.
-
-    A .pptx is a ZIP of OOXML parts. We confirm three things, cheap to strict:
-      1. the file exists,
-      2. it has a .pptx extension,
-      3. it is a valid ZIP that contains ``ppt/presentation.xml`` — the part that
-         makes it a *presentation* (a .docx/.xlsx is also an OOXML ZIP but lacks it,
-         and a non-Office file renamed to .pptx is not a ZIP at all).
-    """
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"file not found: {path}")
     if path.suffix.lower() != ".pptx":
-        raise ValueError(f"expected a .pptx file, got: {path.name}")
-    if not zipfile.is_zipfile(path):
-        raise ValueError(f"not a valid .pptx (not an OOXML/ZIP package): {path.name}")
-    with zipfile.ZipFile(path) as archive:
-        if "ppt/presentation.xml" not in archive.namelist():
-            raise ValueError(
-                f"file is a ZIP but not a PowerPoint presentation "
-                f"(missing ppt/presentation.xml): {path.name}")
+        raise ValueError(f"file type mismatch: {path.name}")
     return path
 
 
-def _xml_attr(value) -> str:
-    """Escape a value for safe use inside an XML attribute (filename, data-type)."""
-    return (str(value).replace("&", "&amp;").replace('"', "&quot;")
-            .replace("<", "&lt;").replace(">", "&gt;"))
-
 def _image_from_shape(shape) -> tuple[bytes, str] | None:
-
     if shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
         try:
             image = shape.image
             return image.blob, image.ext.lower()
-        except Exception:                                   # corrupt/linked picture
+        except Exception:
             return None
-
     try:
-        if int(shape.fill.type) == _MSO_FILL_PICTURE:
+        if int(shape.fill.type) == _MSO_FILL_PICTURE:  # image used as a shape fill (often charts)
             blip = shape._element.find(".//" + qn("a:blip"))
             if blip is not None:
                 rid = blip.get(qn("r:embed"))
                 part = shape.part.related_part(rid)
                 return part.blob, part.partname.split(".")[-1].lower()
-    except Exception:                                       # no fill / unreadable relationship
+    except Exception:
         return None
     return None
 
@@ -124,7 +86,6 @@ def _sort_key(shape) -> tuple[int, int]:
 
 
 def _iter_blocks(shapes, register):
-
     for shape in sorted(shapes, key=_sort_key):
         if shape.shape_type == MSO_SHAPE_TYPE.GROUP:
             yield from _iter_blocks(shape.shapes, register)
@@ -132,24 +93,24 @@ def _iter_blocks(shapes, register):
 
         image = _image_from_shape(shape)
         if image is not None:
-            yield ("image", register(*image))
+            yield "image", register(*image)
             continue
 
         if getattr(shape, "has_text_frame", False):
             text = shape.text_frame.text.strip()
             if text:
-                yield ("text", text)
+                yield "text", text
 
         if getattr(shape, "has_table", False):
-            rows = [" | ".join(c.text.strip() for c in row.cells)
+            rows = [" | ".join(cell.text.strip() for cell in row.cells)
                     for row in shape.table.rows
-                    if any(c.text.strip() for c in row.cells)]
+                    if any(cell.text.strip() for cell in row.cells)]
             if rows:
-                yield ("text", "\n".join(rows))
+                yield "text", "\n".join(rows)
 
 
 def _svg_to_png(svg_bytes: bytes) -> bytes:
-    import fitz  # PyMuPDF — imported lazily so text-only / SVG-free decks need no dependency
+    import fitz
     return fitz.open(stream=svg_bytes, filetype="svg")[0].get_pixmap().tobytes("png")
 
 
@@ -160,8 +121,12 @@ def _data_url(blob: bytes, ext: str) -> str:
     return f"data:image/{mime};base64,{base64.b64encode(blob).decode('ascii')}"
 
 
-class PlaceholderExtractor:
+def _xml_attr(value) -> str:
+    return (str(value).replace("&", "&amp;").replace('"', "&quot;")
+            .replace("<", "&lt;").replace(">", "&gt;"))
 
+
+class PlaceholderExtractor:
     def __init__(self, config: ExtractorConfig | None = None):
         self.config = config or ExtractorConfig()
 
@@ -169,19 +134,18 @@ class PlaceholderExtractor:
         slides, by_id = self._run(pptx_path)
         return self._render_xml(slides, by_id, Path(pptx_path).name, data_type=data_type)
 
-    def _run(self, pptx_path: Path) -> tuple[list[Slide], dict[int, ImageRef]]:
-        """Parse the deck, then describe its images. Returns (slides, {image_id: ImageRef})."""
-        pptx_path = _validate_pptx(pptx_path)           
+    def _run(self, pptx_path: Path):
+        pptx_path = _validate_pptx(pptx_path)
         slides, images = self._parse(pptx_path)
         if images:
             self._describe_all(images)
         return slides, {img.image_id: img for img in images}
 
-    def _parse(self, pptx_path: Path) -> tuple[list[Slide], list[ImageRef]]:
-        registry: dict[str, ImageRef] = {}
+    def _parse(self, pptx_path: Path):
+        registry = {}
 
-        def register(blob: bytes, ext: str) -> int:
-            digest = hashlib.sha1(blob).hexdigest()         # dedup identical images
+        def register(blob, ext):
+            digest = hashlib.sha1(blob).hexdigest()
             ref = registry.get(digest)
             if ref is None:
                 ref = ImageRef(len(registry) + 1, blob, ext)
@@ -189,26 +153,24 @@ class PlaceholderExtractor:
             return ref.image_id
 
         presentation = Presentation(str(pptx_path))
-        slides = [
-            Slide(number, list(_iter_blocks(slide.shapes, register)))
-            for number, slide in enumerate(presentation.slides, start=1)
-        ]
+        slides = [Slide(number, list(_iter_blocks(slide.shapes, register)))
+                  for number, slide in enumerate(presentation.slides, start=1)]
         images = list(registry.values())
         placements = sum(kind == "image" for s in slides for kind, _ in s.blocks)
         logger.info("%d slides, %d unique images (%d placements)",
                     len(slides), len(images), placements)
         return slides, images
 
-    def _describe_all(self, images: list[ImageRef]) -> None:
-        from openai import OpenAI            # lazy import keeps text-only runs light
-        client = OpenAI()                    # reads OPENAI_API_KEY from the environment
+    def _describe_all(self, images: list[ImageRef]):
+        from openai import OpenAI
+        client = OpenAI()
         workers = min(self.config.max_workers, len(images))
         logger.info("describing %d images via %s (%d concurrent)",
                     len(images), self.config.model, workers)
         with ThreadPoolExecutor(max_workers=workers) as pool:
             pool.map(lambda img: self._describe(client, img), images)
 
-    def _describe(self, client, image: ImageRef) -> None:
+    def _describe(self, client, image: ImageRef):
         try:
             response = client.responses.create(
                 model=self.config.model,
@@ -219,81 +181,57 @@ class PlaceholderExtractor:
                      "detail": _IMAGE_DETAIL}]}],
             )
             image.description = (response.output_text or "").strip()
-        except Exception as exc:                            # isolate per-image failures
+        except Exception as exc:
             logger.warning("image %d failed: %s", image.image_id, exc)
-            image.description = f"_[image description failed: {exc}]_"
+            image.description = f"[image description failed: {exc}]"
 
-
-    def _render_xml(self, slides: list[Slide], by_id: dict[int, ImageRef],
-                    filename: str, index: int = 1, data_type: str = "PPTX") -> str:
-        """Render the deck as XML in the <documents>/<document> template.
-
-        Builds the slide body (native text + image descriptions) inline, then wraps it.
-        Attributes are escaped; the body is kept raw to match the reference template.
-        """
-        sections = []
+    def _render_xml(self, slides, by_id, filename, index=1, data_type="PPTX") -> str:
+        slide_texts = []
         for slide in slides:
-            parts = []
+            parts = [f"Slide {slide.number}"]
             for kind, value in slide.blocks:
                 if kind == "text":
                     parts.append(value)
                 else:
-                    desc = by_id[value].description or "_[no description]_"
-                    parts.append(f"**[Image {value}]**\n\n{desc}")
-            slide_body = "\n\n".join(parts) if parts else "_[no content]_"
-            sections.append(f"## Slide {slide.number}\n\n{slide_body}")
-        body = "\n\n---\n\n".join(sections) + "\n"
-
+                    description = by_id[value].description or "(no description)"
+                    parts.append(f"[Image {value}]\n{description}")
+            slide_texts.append("\n\n".join(parts))
+        body = "\n\n".join(slide_texts)
         return (
             "<documents>\n"
             f'  <document index="{index}" filename="{_xml_attr(filename)}"'
             f' data-type="{_xml_attr(data_type)}">\n'
-            f"{body}"
+            f"{body}\n"
             "  </document>\n"
             "</documents>\n"
         )
 
+
 def pptx_to_xml(file_path, output_dir, config: ExtractorConfig | None = None,
                 data_type: str = "PPTX") -> Path:
-    """Extract `file_path` to XML and write `<output_dir>/<name>.xml`. Returns the output path."""
     src = Path(file_path)
-    text = PlaceholderExtractor(config).extract_xml(src, data_type=data_type)
-    return _write(text, output_dir, src.stem, ".xml")
-
-def _write(text: str, output_dir, stem: str, ext: str) -> Path:
-    out_path = Path(output_dir) / f"{stem}{ext}"
+    xml = PlaceholderExtractor(config).extract_xml(src, data_type=data_type)
+    out_path = Path(output_dir) / f"{src.stem}.xml"
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(text, encoding="utf-8")
+    out_path.write_text(xml, encoding="utf-8")
     return out_path
 
 
-# --------------------------------------------------------------------------- #
-# CLI
-# --------------------------------------------------------------------------- #
-def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("pptx", type=Path, help="path to the .pptx file")
-    parser.add_argument("-o", "--out", type=Path,
-                        help="output path (default: output/<name>.xml)")
-    parser.add_argument("-m", "--model", default=ExtractorConfig.model, help="OpenAI model")
-    parser.add_argument("--data-type", default="PPTX",
-                        help="value for the <document data-type> attribute (default: PPTX)")
+def main(argv=None):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("pptx", type=Path)
+    parser.add_argument("-o", "--out", type=Path, default="output", help="output directory")
+    parser.add_argument("-m", "--model", default=ExtractorConfig.model)
+    parser.add_argument("--data-type", default="PPTX")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stderr)
-    logging.getLogger("httpx").setLevel(logging.WARNING)    # mute per-request HTTP noise
-
-    out_path = args.out or Path("output") / f"{args.pptx.stem}.xml"
-    config = ExtractorConfig(model=args.model)
-    extractor = PlaceholderExtractor(config)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     try:
-        text = extractor.extract_xml(args.pptx, data_type=args.data_type)
-    except (FileNotFoundError, ValueError) as exc:      # bad/missing/non-pptx input
-        parser.error(str(exc))                          # clean "error: …", no traceback
-
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(text, encoding="utf-8")
-    logger.info("written to %s", out_path)
+        out = pptx_to_xml(args.pptx, args.out, ExtractorConfig(model=args.model), args.data_type)
+    except (FileNotFoundError, ValueError) as exc:
+        parser.error(str(exc))
+    logger.info("written to %s", out)
 
 
 if __name__ == "__main__":

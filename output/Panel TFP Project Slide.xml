@@ -1,10 +1,9 @@
 <documents>
   <document index="1" filename="Panel TFP Project Slide.pptx" data-type="PPTX">
-## Slide 1
+Slide 1
 
-**[Image 1]**
-
-(decorative — no data)
+[Image 1]
+(decorative, no data)
 
 Cross-Country TFP in ASEAN
 
@@ -14,13 +13,10 @@ By: Atitaya Pongpanngam
 Submitted to: Assoc. Prof. Monthien Satimanon
 Faculty of Economics, Thammasat University — May 2026
 
-**[Image 2]**
+[Image 2]
+(decorative, no data)
 
-(decorative — no data)
-
----
-
-## Slide 2
+Slide 2
 
 MOTIVATION: WHY STUDY ASEAN PRODUCTIVITY?
 
@@ -32,9 +28,7 @@ ASEAN economies show very different growth paths over 2000-2023. Singapore and M
 
 2
 
----
-
-## Slide 3
+Slide 3
 
 RESEARCH QUESTION
 
@@ -42,9 +36,8 @@ Central Research Question
 
 Which ASEAN economies have driven productivity growth between 2000 and 2023, and how does the answer depend on whether we estimate or calibrate the capital share parameter alpha?
 
-**[Image 3]**
-
-(decorative — no data)
+[Image 3]
+(decorative, no data)
 
 Estimated α
 
@@ -56,9 +49,7 @@ Standard macroeconomic assumption: α = 1/3
 
 3
 
----
-
-## Slide 4
+Slide 4
 
 TFP is recovered from the Cobb-Douglas framework
 
@@ -80,15 +71,12 @@ Total factor productivity
 
 TFP (A) measures the part of output not explained by capital and labour inputs. It captures technology, efficiency, and institutions.
 
-**[Image 4]**
-
-(decorative — no data)
+[Image 4]
+(decorative, no data)
 
 4
 
----
-
-## Slide 5
+Slide 5
 
 GDP per worker shows large cross-country differences
 
@@ -96,31 +84,30 @@ Key Summary Statistics
 
 Log GDP Per Worker Trends (2000-2023)
 
-**[Image 5]**
+[Image 5]
+Title: (Not shown in the image)
 
-Title: *(not shown)*
+Y-axis label: lny (range: 7 to 12)
+X-axis label: Year (range: 2000 to 2025)
 
-Y-Axis: lny (Range: 7 to 12)
-X-Axis: Year (Range: 2000 to 2025)
-
-Legend/Series:
+Legend/Series (with corresponding line colors):
 - Cambodia (blue)
-- Thailand (purple-pink)
+- Thailand (pink)
 - Indonesia (teal)
 - Brunei (yellow)
 - Lao (purple)
-- Malaysia (orange-red)
+- Malaysia (orange)
 - Myanmar (green)
-- Philippines (brown)
-- Singapore (red)
-- Vietnam (orange)
+- Philippines (red)
+- Singapore (dark brown)
+- Vietnam (light orange)
 
-Trends/Relationships:
-- Indonesia and Brunei show the highest 'lny' values, staying above 11 throughout the period.
-- Singapore and Malaysia also present relatively high 'lny' values, just below Indonesia and Brunei.
-- The Philippines, Thailand, and Vietnam fall in the middle range with 'lny' values from upper 8 to just under 10.
-- Cambodia starts with the lowest 'lny' (about 7) but demonstrates a steady upward trend.
-- All countries show a generally increasing or stable trend in 'lny' from 2000 to 2025.
+Data/Trends/Relationships:
+- All countries show relatively steady or slightly increasing trends in their "lny" values from 2000 to 2025.
+- Indonesia and Brunei have the highest "lny" values, staying above 11.
+- Singapore, Malaysia, and Thailand have "lny" values between 9 and 10.
+- The rest, including Cambodia and Myanmar, have lower "lny" values, ranging from 7 to 9.
+- There is some convergence among the lower and middle groups, while Indonesia and Brunei remain as outliers at the top.
 
 9.27
 
@@ -142,9 +129,7 @@ Clear divergence between high-income (Singapore, Brunei) and developing ASEAN ec
 
 5
 
----
-
-## Slide 6
+Slide 6
 
 DATA CONSTRUCTION
 
@@ -154,13 +139,22 @@ WDI does not directly provide capital stock data. We construct it using the Perp
 
 Two Key Equations
 
-**[Image 6]**
+[Image 6]
+Title: None
 
-$K_0 = \frac{i_0}{g + \delta}$
+Content: This is a mathematical formula:
 
-**[Image 7]**
+K₀ = l₀ / (g + δ)
 
-(decorative — no data)
+Where:
+- K₀ is on the left side of the equation.
+- On the right side, l₀ is the numerator.
+- g + δ is the denominator.
+
+There are no axes, legend, or data values; it is a display of an equation.
+
+[Image 7]
+(decorative, no data)
 
 Where:
 
@@ -172,9 +166,7 @@ Key assumption: Baseline depreciation rate = 6% (robustness checks use 4% and 8%
 
 6
 
----
-
-## Slide 7
+Slide 7
 
 DESCRIPTIVE EVIDENCE
 
@@ -186,13 +178,13 @@ Average Annual TFP Growth
 
 Rankings are broadly stable under both estimated and calibrated α.
 
-**[Image 8]**
+[Image 8]
+Title: (No explicit title shown)
+Legend/Series: 
+- Light brown: Estimated α
+- Dark brown: Calibrated α
 
-**Legend:**
-- Estimated α (light brown)
-- Calibrated α (dark brown)
-
-**Y-axis (Country):**
+Y-axis (categories): Country
 - Vietnam
 - Singapore
 - Indonesia
@@ -203,44 +195,30 @@ Rankings are broadly stable under both estimated and calibrated α.
 - Philippines
 - Brunei
 
-**X-axis:**
-- Scale: -2 to 2 (intervals at -2, -1, 0, 1, 2)
-- No specific label stated
+X-axis: Scale from approximately -2.5 to 2.5
 
-**Bar Values (approximate from visual):**
-
-| Country     | Estimated α | Calibrated α |
-|-------------|-------------|--------------|
-| Vietnam     | ~2          | ~2           |
-| Singapore   | ~1.4        | ~1.4         |
-| Indonesia   | ~1.3        | ~1.3         |
-| Cambodia    | ~1.2        | ~1.2         |
-| Laos        | ~1.0        | ~1.0         |
-| Thailand    | ~0.9        | ~0.9         |
-| Malaysia    | ~0.8        | ~0.8         |
-| Philippines | ~0.7        | ~0.7         |
-| Brunei      | ~-2         | ~-2          |
-
-**Relationship:**  
-Both the Estimated α and Calibrated α are almost identical for each country; Vietnam shows the highest value, Brunei the lowest (negative value). The rest of the countries have positive values, decreasing from Singapore to the Philippines.
+Content/Trends:
+- The chart is a horizontal bar graph.
+- For each country, there are two bars representing "Estimated α" and "Calibrated α."
+- Vietnam has the highest positive values for both estimated and calibrated α, close to 2.
+- Brunei has the most negative values for both estimated and calibrated α, near -2.
+- The rest of the countries have values between these extremes, with positive values and minor differences between estimated and calibrated α.
+- The data shows that most countries have positive α values, except for Brunei, which is strongly negative. Vietnam stands out at the positive end.
 
 Singapore (SGP): lntfp_est = 7.51 | lntfp_cal = 8.03 — highest in ASEAN
 
-**[Image 9]**
-
-(decorative — no data)
+[Image 9]
+(decorative, no data)
 
 Brunei (BRN): lntfp_est = 7.34 | lntfp_cal = 7.84 — advanced production structure
 
-**[Image 9]**
-
-(decorative — no data)
+[Image 9]
+(decorative, no data)
 
 Malaysia (MYS): lntfp_est = 6.62 | lntfp_cal = 7.06 — strong technological adoption
 
-**[Image 9]**
-
-(decorative — no data)
+[Image 9]
+(decorative, no data)
 
 Cambodia (KHM), Laos (LAO), and Vietnam (VNM) sit at the bottom of the regional TFP distribution.
 
@@ -248,9 +226,7 @@ Average annual TFP growth rates (%) under estimated and calibrated α. Vietnam l
 
 7
 
----
-
-## Slide 8
+Slide 8
 
 GROWTH DYNAMICS
 
@@ -258,19 +234,16 @@ Vietnam records the fastest TFP growth
 
 While Singapore leads in absolute productivity levels, Vietnam shows the strongest productivity growth over 2000-2023. This reflects rapid industrialization and integration into global value chains.
 
-**[Image 10]**
+[Image 10]
+(decorative, no data)
 
-(decorative — no data)
-
-**[Image 10]**
-
-(decorative — no data)
+[Image 10]
+(decorative, no data)
 
 Level leader = Singapore; Growth leader = Vietnam
 
-**[Image 11]**
-
-(decorative — no data)
+[Image 11]
+(decorative, no data)
 
 Vietnam
 
@@ -282,13 +255,11 @@ Singapore
 
 Growth leadership is concentrated in economies undergoing faster structural change, while mature frontier economies expand more gradually.
 
-**[Image 10]**
+[Image 10]
+(decorative, no data)
 
-(decorative — no data)
-
-**[Image 12]**
-
-(decorative — no data)
+[Image 12]
+(decorative, no data)
 
 Indonesia
 
@@ -298,9 +269,8 @@ Malaysia, Philippines, Thailand
 
 Moderate growth (1.1-1.4%)
 
-**[Image 10]**
-
-(decorative — no data)
+[Image 10]
+(decorative, no data)
 
 Brunei
 
@@ -308,9 +278,7 @@ Brunei
 
 8
 
----
-
-## Slide 9
+Slide 9
 
 ECONOMETRIC METHODS
 
@@ -336,9 +304,7 @@ Controls both country and year effects. Most comprehensive specification.
 
 9
 
----
-
-## Slide 10
+Slide 10
 
 ECONOMETRIC RESULTS
 
@@ -378,15 +344,12 @@ Most plausible; controls country + year effects
 
 Key Takeaway: The TWFE estimate of 0.385 falls within the standard theoretical range of 0.25-0.45, making it the most economically credible specification.
 
-**[Image 13]**
-
-(decorative — no data)
+[Image 13]
+(decorative, no data)
 
 10
 
----
-
-## Slide 11
+Slide 11
 
 ECONOMETRIC VALIDATION
 
@@ -410,9 +373,7 @@ Random effects is inconsistent. Fixed effects methods are preferred.
 
 11
 
----
-
-## Slide 12
+Slide 12
 
 TFP DYNAMICS
 
@@ -424,18 +385,16 @@ TFP Trajectories — Estimated α
 
 TFP Trajectories — Calibrated α = 1/3
 
-**[Image 14]**
-
+[Image 14]
 Title: TFP Trajectories Est
 
-Y-Axis: Log TFP (range: 5 to 8)
-
-X-Axis: Year (range: 2000 to 2025)
+Y-axis label: Log TFP (range approximately from 5 to 8)
+X-axis label: Year (range from 2000 to 2025)
 
 Legend/Series:
 - BRN (light blue)
 - IDN (red)
-- KHM (teal)
+- KHM (green)
 - LAO (yellow)
 - MYS (purple)
 - PHL (orange)
@@ -443,38 +402,38 @@ Legend/Series:
 - THA (brown)
 - VNM (cyan)
 
-Trends/Relationships:
-- "BRN" and "SGP" show the highest Log TFP levels; "SGP" stays relatively flat, while "BRN" shows some decline and fluctuations.
-- "MYS" (purple) is consistently high and shows a steady increase.
-- "IDN," "PHL," "THA," and others are in the middle range, gradually trending upward.
-- "KHM," "LAO," and "VNM" are clustered toward the lower end, but all show a slight increasing trend over time.
-- Across countries, there is a general upward trend in Log TFP from 2000 to 2025, most evident for "MYS," "THA," "VNM."
+Content/Trends:
+- The chart displays the estimated trajectories of Total Factor Productivity (TFP), in log values, for nine countries (listed above) from the year 2000 up to about 2023.
+- BRN and SGP start with the highest TFP values and generally maintain higher levels throughout, with SGP trending slightly upward and BRN showing some downward movement and fluctuations.
+- MYS also shows a persistent upward trend in TFP, maintaining a clearly higher value than the majority of the other countries.
+- Other countries (IDN, PHL, THA, VNM, LAO, KHM) have lower TFP values, with all showing gradual upward trends, though with variances in slope and periodic dips or plateaus.
+- KHM (green) remains the lowest over the period, with only a slight upward trend.
 
-**[Image 15]**
+Overall, the chart indicates varying TFP growth rates and levels across the nine countries over the past two decades.
 
+[Image 15]
 Title: TFP Trajectories Cal
 
-Y-axis: Log TFP (range approximately 5.5 to 8.2)
-X-axis: Year (range 2000 to 2025)
+X-axis label: Year (Range: 2000 to 2025)
+Y-axis label: Log TFP (Range: 5.5 to 8.5)
 
 Legend/Series:
-- BRN (blue)
-- IDN (maroon)
-- KHM (green)
-- LAO (yellow)
-- MYS (purple)
-- PHL (orange)
-- SGP (light blue)
-- THA (brown)
-- VNM (teal)
+- BRN (Blue)
+- IDN (Maroon)
+- KHM (Teal)
+- LAO (Yellow)
+- MYS (Purple)
+- PHL (Orange)
+- SGP (Light Blue)
+- THA (Brown)
+- VNM (Turquoise)
 
-Trends/Relationships:
-- SGP (light blue) consistently has the highest Log TFP values among the countries/series.
-- MYS (purple) is next, with a noticeable but lower trajectory than SGP.
-- THA (brown), PHL (orange), and IDN (maroon) follow, with gradually increasing trends over the years.
-- LAO (yellow), VNM (teal), and KHM (green) are lower but show gradual increases.
-- BRN (blue) is at the bottom, with the lowest Log TFP values but a slow upward trend.
-- Most countries/series exhibit a generally increasing trend in Log TFP from 2000 to 2025, with some annual fluctuations.
+Data, Trends, Relationships:
+- The chart shows the trajectories of Log TFP for nine countries from 2000 to just past 2020.
+- SGP (Singapore, light blue) consistently has the highest Log TFP, followed by BRN (Brunei, blue).
+- Other countries (MYS, THA, IDN, PHL, VNM, KHM, LAO) have lower Log TFP values, with most showing a gradually increasing trend.
+- There is a general upward trend for most countries, indicating improvements in Log TFP over time.
+- Some countries show more fluctuations while others (like SGP and BRN) are more stable but at a higher level.
 
 Singapore
 
@@ -494,15 +453,12 @@ Start low, show moderate improvement
 
 Both specifications produce similar patterns, confirming that the main productivity findings are robust to the choice of capital share parameter.
 
-**[Image 16]**
-
-(decorative — no data)
+[Image 16]
+(decorative, no data)
 
 12
 
----
-
-## Slide 13
+Slide 13
 
 ROBUSTNESS ANALYSIS
 
@@ -528,15 +484,12 @@ Estimated α (TWFE)
 
 Key Finding: All estimates remain close to 0.38 and within the theoretically plausible range of 0.25-0.45.
 
-**[Image 17]**
-
-(decorative — no data)
+[Image 17]
+(decorative, no data)
 
 13
 
----
-
-## Slide 14
+Slide 14
 
 GROWTH DYNAMICS
 
@@ -546,29 +499,20 @@ To examine ASEAN-level convergence, initial TFP levels in 2000 were plotted agai
 
 Key Findings
 
-**[Image 18]**
-
+[Image 18]
 Title: Cumulative TFP Growth (2000-2023)
 
-Legend/Series:
-- ● Cumulative TFP Growth (2000-2023)
+Legend/Series: 
+- Brown dots: Cumulative TFP Growth (2000-2023)
 
-X-Axis: Initial TFP (2000)
-- Range: 35 to 95
+X-axis: Initial TFP (2000), range approximately from 35 to 95
 
-Y-Axis: Cumulative TFP Growth (2000-2023)
-- Range: 20 to 80
+Y-axis: Cumulative TFP Growth (2000-2023), range approximately from 20 to 80
 
-Data points (approximate, based on visual placement):
-- (37, 75)
-- (43, 80)
-- (56, 60)
-- (69, 45)
-- (76, 35)
-- (93, 20)
-
-Trends/Relationships:
-- There is a downward trend: higher initial TFP in 2000 is associated with lower cumulative TFP growth over 2000-2023.
+Data/Trends: 
+- There are seven data points, each represented by a brown dot.
+- As initial TFP (2000) increases, cumulative TFP growth (2000-2023) generally decreases.
+- Fewer data points exist at the lower and higher ends of the axes, indicating a negative relationship between the initial TFP and cumulative TFP growth over the observed period.
 
 Negative relationship: Initial TFP vs. growth
 
@@ -580,17 +524,14 @@ Technological catch-up is measurable
 
 The relationship appears generally negative, suggesting evidence of β-convergence within ASEAN economies. Countries with relatively low initial TFP levels, such as Vietnam and Cambodia, tended to experience faster productivity growth over the sample period.
 
-**[Image 19]**
-
-(decorative — no data)
+[Image 19]
+(decorative, no data)
 
 Lower initial TFP levels are associated with faster cumulative growth, consistent with beta-convergence and catch-up dynamics across ASEAN.
 
 14
 
----
-
-## Slide 15
+Slide 15
 
 CONCLUSION
 
@@ -611,13 +552,10 @@ Findings are robust under both estimated and calibrated alpha
 
 Capital accumulation matters, but sustained growth depends on productivity. ASEAN economies must invest in technology, human capital, and institutional quality to maintain long-run growth.
 
-**[Image 17]**
+[Image 17]
+(decorative, no data)
 
-(decorative — no data)
-
----
-
-## Slide 16
+Slide 16
 
 Q&A
   </document>
