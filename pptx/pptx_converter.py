@@ -5,8 +5,8 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import llm
-from llm import DEFAULT_MAX_WORKERS, DEFAULT_MODEL, IMAGE_PROMPT
+import llm_ref as llm
+from llm_ref import DEFAULT_MAX_WORKERS, DEFAULT_MODEL, IMAGE_PROMPT
 
 logger = logging.getLogger(__name__)
 
