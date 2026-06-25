@@ -1,55 +1,29 @@
 import argparse
-import base64
 import hashlib
 import logging
 import sys
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import llm
+from llm import DEFAULT_MAX_WORKERS, DEFAULT_MODEL, IMAGE_PROMPT
+
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "gpt-4.1"
-DEFAULT_MAX_WORKERS = 8
-IMAGE_DETAIL = "high"
-MSO_FILL_PICTURE = 6 
-
-RASTER_EXT = {"png", "jpg", "jpeg", "gif", "webp"}
-
-# Saving to legacy .ppt rasterizes vector icons/badges/dividers into tiny PNGs that
-# the .pptx path (which keeps them as vector shapes) never surfaces. Skip images whose
-# smallest side is below this — real charts/figures are far larger. 0 disables the filter.
-MIN_IMAGE_DIM = 150
-
-# A legacy PptImage reports a MIME type; map the rasterizable ones to an extension.
+MSO_FILL_PICTURE = 6
 RASTER_MIME_EXT = {
-    "image/png": "png",
-    "image/jpeg": "jpg",
-    "image/jpg": "jpg",
-    "image/gif": "gif",
-    "image/webp": "webp",
-    "image/bmp": "bmp",
+    "image/png": "png", "image/jpeg": "jpg", "image/jpg": "jpg",
+    "image/gif": "gif", "image/webp": "webp", "image/bmp": "bmp",
 }
 
-IMAGE_PROMPT = (
-    "This image was taken from a presentation slide. If it is a chart, graph, table, "
-    "diagram, or figure, describe its content as plain text: title, axis labels and "
-    "ranges, legend/series, and the data, trends, or relationships it conveys. If it is "
-    "a logo, icon, or purely decorative background with no information, reply with exactly: "
-    "(decorative, no data). Do not invent anything not visible, and do not wrap your reply "
-    "in a code fence."
-)
+# Saving to .ppt rasterizes vector icons into tiny PNGs the .pptx path never surfaces. Skip
+# images whose smallest side is below this; real charts are far larger (0 disables the filter).
+MIN_IMAGE_DIM = 150
 
 
 # --- data model ------------------------------------------------------------- #
 def content_digest(blob: bytes) -> str:
-    """Digest images by decoded pixels, not raw bytes.
-
-    Saving a deck to legacy .ppt often re-encodes the same picture per slide
-    (different compression/wrapping), so byte hashes treat one graph as many.
-    Normalizing to canonical PNG collapses those re-encoded copies into one.
-    Falls back to a raw byte hash for anything Pillow can't decode.
-    """
+    """Hash by decoded pixels so .ppt's per-slide re-encodings of one image collapse into one."""
     try:
         from io import BytesIO
         from PIL import Image
@@ -72,21 +46,19 @@ class ImageRef:
 @dataclass
 class Slide:
     number: int
-    blocks: list = field(default_factory=list)  # list of ("text", str) | ("image", image_id)
+    blocks: list = field(default_factory=list)  # ("text", str) | ("image", image_id)
 
 
 @dataclass
 class ImageRegistry:
     """Deduplicates images by content so identical pictures are described once."""
-
     by_digest: dict = field(default_factory=dict)
 
     def register(self, blob: bytes, ext: str) -> int:
         digest = content_digest(blob)
         ref = self.by_digest.get(digest)
         if ref is None:
-            ref = ImageRef(len(self.by_digest) + 1, blob, ext)
-            self.by_digest[digest] = ref
+            ref = self.by_digest[digest] = ImageRef(len(self.by_digest) + 1, blob, ext)
         return ref.image_id
 
     @property
@@ -94,22 +66,19 @@ class ImageRegistry:
         return list(self.by_digest.values())
 
 
-# --- validation & small helpers --------------------------------------------- #
+# --- helpers ---------------------------------------------------------------- #
 def validate_file(file_path) -> tuple[Path, str]:
-    """Return (path, kind) where kind is 'pptx' or 'ppt'; raise on anything else."""
+    """Return (path, kind) where kind is 'ppt' or 'pptx'; raise on anything else."""
     path = Path(file_path)
     if not path.exists():
         raise FileNotFoundError(f"file not found: {path}")
-    suffix = path.suffix.lower()
-    if suffix == ".pptx":
-        return path, "pptx"
-    if suffix == ".ppt":
-        return path, "ppt"
-    raise ValueError(f"unsupported file type: {path.name} (expected .ppt or .pptx)")
+    kind = {".ppt": "ppt", ".pptx": "pptx"}.get(path.suffix.lower())
+    if kind is None:
+        raise ValueError(f"unsupported file type: {path.name} (expected .ppt or .pptx)")
+    return path, kind
 
 
 def ext_from_mime(content_type: str) -> str | None:
-    """Map a legacy image MIME type to a raster extension, or None if unsupported."""
     return RASTER_MIME_EXT.get((content_type or "").strip().lower())
 
 
@@ -118,19 +87,17 @@ def xml_attr(value) -> str:
             .replace("<", "&lt;").replace(">", "&gt;"))
 
 
-def svg_to_png(svg_bytes: bytes) -> bytes:
-    import fitz
-    return fitz.open(stream=svg_bytes, filetype="svg")[0].get_pixmap().tobytes("png")
+def slide_text(slide: Slide) -> str:
+    return " ".join(value for kind, value in slide.blocks if kind == "text")
 
 
-def data_url(blob: bytes, ext: str) -> str:
-    if ext == "svg":
-        blob, ext = svg_to_png(blob), "png"
-    mime = "jpeg" if ext in ("jpg", "jpeg") else (ext if ext in RASTER_EXT else "png")
-    return f"data:image/{mime};base64,{base64.b64encode(blob).decode('ascii')}"
+def log_parse(kind, slides, registry, skipped_vector=0, skipped_small=0):
+    placements = sum(k == "image" for s in slides for k, _ in s.blocks)
+    logger.info("%s: %d slides, %d images, %d placements, %d vector + %d small skipped",
+                kind, len(slides), len(registry.images), placements, skipped_vector, skipped_small)
 
 
-# --- modern .pptx parsing (python-pptx, layout-aware) ----------------------- #
+# --- modern .pptx parsing (layout-aware, exact placement) ------------------- #
 def shape_sort_key(shape) -> tuple[int, int]:
     top = shape.top if isinstance(shape.top, int) else 0
     left = shape.left if isinstance(shape.left, int) else 0
@@ -140,137 +107,110 @@ def shape_sort_key(shape) -> tuple[int, int]:
 def image_from_shape(shape) -> tuple[bytes, str] | None:
     from pptx.enum.shapes import MSO_SHAPE_TYPE
     from pptx.oxml.ns import qn
-
-    if shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
-        try:
-            image = shape.image
-            return image.blob, image.ext.lower()
-        except Exception:
-            return None
     try:
+        if shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
+            return shape.image.blob, shape.image.ext.lower()
         if int(shape.fill.type) == MSO_FILL_PICTURE:
             blip = shape._element.find(".//" + qn("a:blip"))
             if blip is not None:
-                rid = blip.get(qn("r:embed"))
-                part = shape.part.related_part(rid)
+                part = shape.part.related_part(blip.get(qn("r:embed")))
                 return part.blob, part.partname.split(".")[-1].lower()
     except Exception:
         return None
     return None
 
 
-def iter_pptx_blocks(shapes, registry: ImageRegistry):
+def iter_pptx_blocks(shapes, registry):
     from pptx.enum.shapes import MSO_SHAPE_TYPE
-
     for shape in sorted(shapes, key=shape_sort_key):
         if shape.shape_type == MSO_SHAPE_TYPE.GROUP:
             yield from iter_pptx_blocks(shape.shapes, registry)
             continue
-
         image = image_from_shape(shape)
         if image is not None:
             yield "image", registry.register(*image)
             continue
-
-        if getattr(shape, "has_text_frame", False):
-            text = shape.text_frame.text.strip()
-            if text:
-                yield "text", text
-
+        if getattr(shape, "has_text_frame", False) and shape.text_frame.text.strip():
+            yield "text", shape.text_frame.text.strip()
         if getattr(shape, "has_table", False):
-            rows = [" | ".join(cell.text.strip() for cell in row.cells)
-                    for row in shape.table.rows
-                    if any(cell.text.strip() for cell in row.cells)]
+            rows = [" | ".join(c.text.strip() for c in row.cells)
+                    for row in shape.table.rows if any(c.text.strip() for c in row.cells)]
             if rows:
                 yield "text", "\n".join(rows)
 
 
-def parse_pptx(path: Path, registry: ImageRegistry) -> list:
+def parse_pptx(path, registry) -> list:
     from pptx import Presentation
-
-    presentation = Presentation(str(path))
-    slides = [Slide(number, list(iter_pptx_blocks(slide.shapes, registry)))
-              for number, slide in enumerate(presentation.slides, start=1)]
+    slides = [Slide(n, list(iter_pptx_blocks(slide.shapes, registry)))
+              for n, slide in enumerate(Presentation(str(path)).slides, start=1)]
     log_parse("pptx", slides, registry)
     return slides
 
 
 # --- legacy .ppt parsing (sharepoint-to-text) ------------------------------- #
-def parse_ppt(path: Path, registry: ImageRegistry) -> list:
-    import sharepoint2text
+def parse_ppt(path, registry) -> list:
+    """Parse a legacy .ppt into text-only slides, registering images in deck order.
 
+    .ppt keeps no readable picture-to-slide link and sharepoint2text spreads images
+    round-robin, but image_index gives their true deck order. Images are placed later by
+    place_legacy_images() (it needs the descriptions, which don't exist yet at parse time).
+    """
+    import sharepoint2text
     content = next(sharepoint2text.read_file(str(path)))  # one PptContent per file
-    slides = []
-    skipped_vector = 0
-    skipped_small = 0
-    for unit in content.iterate_units():                  # PptUnit per slide, deck order
+    slides, pending = [], []                              # pending: (image_index, blob, ext)
+    skipped_vector = skipped_small = 0
+    for unit in content.iterate_units():                  # one PptUnit per slide, deck order
         blocks = []
         if unit.title:
             blocks.append(("text", unit.title.strip()))
-        text = (unit.text or "").strip()                  # body + other text, title excluded
-        if text:
-            blocks.append(("text", text))
-        for image in unit.get_images():                   # PptImage
+        if (unit.text or "").strip():                     # body + other text, title excluded
+            blocks.append(("text", unit.text.strip()))
+        for image in unit.get_images():
             ext = ext_from_mime(image.get_content_type())
-            if ext is None:
-                skipped_vector += 1                        # WMF/EMF/etc. cannot be rasterized
-                continue
-            w, h = image.width or 0, image.height or 0     # drop rasterized icons/badges
-            if MIN_IMAGE_DIM and w and h and min(w, h) < MIN_IMAGE_DIM:
-                skipped_small += 1
-                continue
-            blob = image.get_bytes().read()
-            if blob:
-                blocks.append(("image", registry.register(blob, ext)))
+            w, h = image.width or 0, image.height or 0
+            if ext is None:                               # WMF/EMF/etc. can't be rasterized
+                skipped_vector += 1
+            elif MIN_IMAGE_DIM and w and h and min(w, h) < MIN_IMAGE_DIM:
+                skipped_small += 1                        # rasterized icon/badge/divider
+            elif (blob := image.get_bytes().read()):
+                pending.append((getattr(image, "image_index", 0), blob, ext))
         slides.append(Slide(unit.slide_number, blocks))
+    for _, blob, ext in sorted(pending, key=lambda t: t[0]):  # register in deck order
+        registry.register(blob, ext)
     log_parse("ppt", slides, registry, skipped_vector, skipped_small)
     return slides
 
 
-def log_parse(kind: str, slides: list, registry: ImageRegistry,
-              skipped_vector: int = 0, skipped_small: int = 0):
-    placements = sum(k == "image" for s in slides for k, _ in s.blocks)
-    logger.info("%s: %d slides, %d unique images (%d placements), "
-                "%d vector + %d small images skipped",
-                kind, len(slides), len(registry.images), placements,
-                skipped_vector, skipped_small)
+# --- legacy .ppt image placement -------------------------------------------- #
+# .ppt has no readable picture-to-slide link, so placement is inferred: llm.match_slides()
+# matches each figure to the best-fitting slide, else a proportional spread. Either way a
+# {image_id: slide} map is applied, so a failed/partial inference never half-places.
+def proportional_mapping(slides, images) -> dict:
+    """Spread deck-ordered images evenly across slides (fallback when the LLM is unavailable)."""
+    n = len(slides)
+    return {img.image_id: slides[min(n - 1, int((i + 0.5) * n / len(images)))].number
+            for i, img in enumerate(images)}
 
 
-# --- vision image description ----------------------------------------------- #
-def describe_images(images: list, model: str, max_workers: int, prompt: str, client=None):
-    """Fill each ImageRef.description in place via a vision model (concurrent).
-
-    client: an OpenAI/AzureOpenAI instance. If None, a default OpenAI() client is
-    built from the standard OPENAI_* environment variables. Pass an explicit
-    client (e.g. AzureOpenAI(...)) to force a specific backend and credentials.
-    """
-    if client is None:
-        from openai import OpenAI
-        client = OpenAI()
-    workers = min(max_workers, len(images))
-    logger.info("describing %d images via %s (%d concurrent)", len(images), model, workers)
-
-    def describe(image: ImageRef):
-        try:
-            response = client.chat.completions.create(
-                model=model,
-                messages=[{"role": "user", "content": [
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {
-                        "url": data_url(image.blob, image.ext), "detail": IMAGE_DETAIL}},
-                ]}],
-            )
-            image.description = (response.choices[0].message.content or "").strip()
-        except Exception as exc:
-            logger.warning("image %d failed: %s", image.image_id, exc)
-            image.description = f"[image description failed: {exc}]"
-
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        pool.map(describe, images)
+def place_legacy_images(slides, images, model, client, infer_placement=True) -> None:
+    """Place .ppt images inline by inferred slide, falling back to a proportional spread."""
+    if not (slides and images):
+        return
+    mapping = None
+    if infer_placement:
+        mapping = llm.match_slides([(s.number, slide_text(s)) for s in slides],
+                                   [(im.image_id, im.description) for im in images],
+                                   model=model, client=client)
+    if mapping is None:
+        mapping = proportional_mapping(slides, images)
+    by_number = {s.number: s for s in slides}
+    for image in images:
+        by_number[mapping[image.image_id]].blocks.append(("image", image.image_id))
 
 
 # --- rendering -------------------------------------------------------------- #
-def render_xml(slides: list, by_id: dict, filename: str, data_type: str, index: int = 1) -> str:
+def render_xml(slides, by_id, filename, data_type, index=1, approx_images=False) -> str:
+    suffix = " (approximate slide)" if approx_images else ""  # .ppt placement is inferred
     slide_texts = []
     for slide in slides:
         parts = [f"Slide {slide.number}"]
@@ -278,41 +218,23 @@ def render_xml(slides: list, by_id: dict, filename: str, data_type: str, index: 
             if kind == "text":
                 parts.append(value)
             else:
-                description = by_id[value].description or "(no description)"
-                parts.append(f"[Image {value}]\n{description}")
+                desc = by_id[value].description or "(no description)"
+                parts.append(f"[Image {value}{suffix}]\n{desc}")
         slide_texts.append("\n\n".join(parts))
     body = "\n\n".join(slide_texts)
-    return (
-        "<documents>\n"
-        f'  <document index="{index}" filename="{xml_attr(filename)}"'
-        f' data-type="{xml_attr(data_type)}">\n'
-        f"{body}\n"
-        "  </document>\n"
-        "</documents>\n"
-    )
+    return (f'<documents>\n  <document index="{index}" filename="{xml_attr(filename)}"'
+            f' data-type="{xml_attr(data_type)}">\n{body}\n  </document>\n</documents>\n')
 
 
-# --- public entry point ----------------------------------------------------- #
-def pptx_converter(file_path, output_dir=None, *, model: str = DEFAULT_MODEL,
-                   max_workers: int = DEFAULT_MAX_WORKERS, prompt: str = IMAGE_PROMPT,
-                   data_type: str | None = None, client=None) -> str:
-    """Convert a .ppt or .pptx file to placeholder XML and return it as a string.
+# --- entry point ------------------------------------------------------------ #
+def pptx_converter(file_path, output_dir=None, *, model=DEFAULT_MODEL,
+                   max_workers=DEFAULT_MAX_WORKERS, prompt=IMAGE_PROMPT,
+                   data_type=None, client=None, infer_placement=True) -> str:
+    """Convert a .ppt/.pptx to placeholder XML (and write it to output_dir if given).
 
-    Args:
-        file_path: path to a .ppt or .pptx file.
-        output_dir: if given, the XML is also written to ``<output_dir>/<stem>.xml``.
-        model: vision model used to describe images. For Azure, this is the
-            deployment name.
-        max_workers: max concurrent image-description requests.
-        prompt: instruction sent to the vision model for each image.
-        data_type: value for the document's ``data-type`` attribute
-            (defaults to "PPTX" or "PPT" based on the detected format).
-        client: an OpenAI/AzureOpenAI instance. When provided it is used as-is,
-            overriding any default — pass AzureOpenAI(...) to force Azure. When
-            None, a default OpenAI() client is built from OPENAI_* env vars.
-
-    Returns:
-        The rendered <documents> XML string.
+    .pptx places images on their exact slide; .ppt placement is inferred (LLM match in deck
+    order, else a proportional spread). Pass client=AzureOpenAI(...) to force Azure; set
+    infer_placement=False to skip the LLM step for .ppt.
     """
     path, kind = validate_file(file_path)
     registry = ImageRegistry()
@@ -320,11 +242,13 @@ def pptx_converter(file_path, output_dir=None, *, model: str = DEFAULT_MODEL,
 
     images = registry.images
     if images:
-        describe_images(images, model=model, max_workers=max_workers, prompt=prompt,
-                        client=client)
-    by_id = {image.image_id: image for image in images}
+        client = llm.get_client(client)        # resolve once so describe + placement share it
+        llm.describe_images(images, model=model, max_workers=max_workers, prompt=prompt, client=client)
+        if kind == "ppt":                      # .pptx already placed images during parse
+            place_legacy_images(slides, images, model, client, infer_placement)
 
-    xml = render_xml(slides, by_id, path.name, data_type=data_type or kind.upper())
+    by_id = {image.image_id: image for image in images}
+    xml = render_xml(slides, by_id, path.name, data_type or kind.upper(), approx_images=(kind == "ppt"))
     if output_dir is not None:
         out_path = Path(output_dir) / f"{path.stem}.xml"
         out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -339,12 +263,15 @@ def main(argv=None):
     parser.add_argument("-o", "--out", type=Path, default="output", help="output directory")
     parser.add_argument("-m", "--model", default=DEFAULT_MODEL)
     parser.add_argument("--data-type", default=None)
+    parser.add_argument("--no-infer-placement", action="store_true",
+                        help="for .ppt, skip LLM slide-matching and spread images proportionally")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stderr)
     logging.getLogger("httpx").setLevel(logging.WARNING)
     try:
-        pptx_converter(args.file, args.out, model=args.model, data_type=args.data_type)
+        pptx_converter(args.file, args.out, model=args.model, data_type=args.data_type,
+                       infer_placement=not args.no_infer_placement)
     except (FileNotFoundError, ValueError) as exc:
         parser.error(str(exc))
 
