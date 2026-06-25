@@ -16,6 +16,11 @@ MSO_FILL_PICTURE = 6
 
 RASTER_EXT = {"png", "jpg", "jpeg", "gif", "webp"}
 
+# Saving to legacy .ppt rasterizes vector icons/badges/dividers into tiny PNGs that
+# the .pptx path (which keeps them as vector shapes) never surfaces. Skip images whose
+# smallest side is below this — real charts/figures are far larger. 0 disables the filter.
+MIN_IMAGE_DIM = 150
+
 # A legacy PptImage reports a MIME type; map the rasterizable ones to an extension.
 RASTER_MIME_EXT = {
     "image/png": "png",
@@ -37,6 +42,25 @@ IMAGE_PROMPT = (
 
 
 # --- data model ------------------------------------------------------------- #
+def content_digest(blob: bytes) -> str:
+    """Digest images by decoded pixels, not raw bytes.
+
+    Saving a deck to legacy .ppt often re-encodes the same picture per slide
+    (different compression/wrapping), so byte hashes treat one graph as many.
+    Normalizing to canonical PNG collapses those re-encoded copies into one.
+    Falls back to a raw byte hash for anything Pillow can't decode.
+    """
+    try:
+        from io import BytesIO
+        from PIL import Image
+        with Image.open(BytesIO(blob)) as im:
+            buf = BytesIO()
+            im.convert("RGB").save(buf, "PNG")
+            return hashlib.sha1(buf.getvalue()).hexdigest()
+    except Exception:
+        return hashlib.sha1(blob).hexdigest()
+
+
 @dataclass
 class ImageRef:
     image_id: int
@@ -58,7 +82,7 @@ class ImageRegistry:
     by_digest: dict = field(default_factory=dict)
 
     def register(self, blob: bytes, ext: str) -> int:
-        digest = hashlib.sha1(blob).hexdigest()
+        digest = content_digest(blob)
         ref = self.by_digest.get(digest)
         if ref is None:
             ref = ImageRef(len(self.by_digest) + 1, blob, ext)
@@ -178,6 +202,7 @@ def parse_ppt(path: Path, registry: ImageRegistry) -> list:
     content = next(sharepoint2text.read_file(str(path)))  # one PptContent per file
     slides = []
     skipped_vector = 0
+    skipped_small = 0
     for unit in content.iterate_units():                  # PptUnit per slide, deck order
         blocks = []
         if unit.title:
@@ -190,26 +215,38 @@ def parse_ppt(path: Path, registry: ImageRegistry) -> list:
             if ext is None:
                 skipped_vector += 1                        # WMF/EMF/etc. cannot be rasterized
                 continue
+            w, h = image.width or 0, image.height or 0     # drop rasterized icons/badges
+            if MIN_IMAGE_DIM and w and h and min(w, h) < MIN_IMAGE_DIM:
+                skipped_small += 1
+                continue
             blob = image.get_bytes().read()
             if blob:
                 blocks.append(("image", registry.register(blob, ext)))
         slides.append(Slide(unit.slide_number, blocks))
-    log_parse("ppt", slides, registry, skipped_vector)
+    log_parse("ppt", slides, registry, skipped_vector, skipped_small)
     return slides
 
 
-def log_parse(kind: str, slides: list, registry: ImageRegistry, skipped_vector: int = 0):
+def log_parse(kind: str, slides: list, registry: ImageRegistry,
+              skipped_vector: int = 0, skipped_small: int = 0):
     placements = sum(k == "image" for s in slides for k, _ in s.blocks)
-    logger.info("%s: %d slides, %d unique images (%d placements), %d vector images skipped",
-                kind, len(slides), len(registry.images), placements, skipped_vector)
+    logger.info("%s: %d slides, %d unique images (%d placements), "
+                "%d vector + %d small images skipped",
+                kind, len(slides), len(registry.images), placements,
+                skipped_vector, skipped_small)
 
 
 # --- vision image description ----------------------------------------------- #
-def describe_images(images: list, model: str, max_workers: int, prompt: str):
-    """Fill each ImageRef.description in place via a vision model (concurrent)."""
-    from openai import OpenAI
+def describe_images(images: list, model: str, max_workers: int, prompt: str, client=None):
+    """Fill each ImageRef.description in place via a vision model (concurrent).
 
-    client = OpenAI()
+    client: an OpenAI/AzureOpenAI instance. If None, a default OpenAI() client is
+    built from the standard OPENAI_* environment variables. Pass an explicit
+    client (e.g. AzureOpenAI(...)) to force a specific backend and credentials.
+    """
+    if client is None:
+        from openai import OpenAI
+        client = OpenAI()
     workers = min(max_workers, len(images))
     logger.info("describing %d images via %s (%d concurrent)", len(images), model, workers)
 
@@ -258,17 +295,21 @@ def render_xml(slides: list, by_id: dict, filename: str, data_type: str, index: 
 # --- public entry point ----------------------------------------------------- #
 def pptx_converter(file_path, output_dir=None, *, model: str = DEFAULT_MODEL,
                    max_workers: int = DEFAULT_MAX_WORKERS, prompt: str = IMAGE_PROMPT,
-                   data_type: str | None = None) -> str:
+                   data_type: str | None = None, client=None) -> str:
     """Convert a .ppt or .pptx file to placeholder XML and return it as a string.
 
     Args:
         file_path: path to a .ppt or .pptx file.
         output_dir: if given, the XML is also written to ``<output_dir>/<stem>.xml``.
-        model: vision model used to describe images.
+        model: vision model used to describe images. For Azure, this is the
+            deployment name.
         max_workers: max concurrent image-description requests.
         prompt: instruction sent to the vision model for each image.
         data_type: value for the document's ``data-type`` attribute
             (defaults to "PPTX" or "PPT" based on the detected format).
+        client: an OpenAI/AzureOpenAI instance. When provided it is used as-is,
+            overriding any default — pass AzureOpenAI(...) to force Azure. When
+            None, a default OpenAI() client is built from OPENAI_* env vars.
 
     Returns:
         The rendered <documents> XML string.
@@ -279,7 +320,8 @@ def pptx_converter(file_path, output_dir=None, *, model: str = DEFAULT_MODEL,
 
     images = registry.images
     if images:
-        describe_images(images, model=model, max_workers=max_workers, prompt=prompt)
+        describe_images(images, model=model, max_workers=max_workers, prompt=prompt,
+                        client=client)
     by_id = {image.image_id: image for image in images}
 
     xml = render_xml(slides, by_id, path.name, data_type=data_type or kind.upper())
