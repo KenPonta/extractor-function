@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>pptx_converter.py + llm.py — Visual Guide</title>
+<style>
+  :root{
+    --bg:#0f1116; --panel:#171a21; --panel2:#1d212b; --line:#2a2f3a;
+    --ink:#e7ebf2; --muted:#9aa3b2; --faint:#6b7280;
+    --validate:#64748b; --parse:#3b82f6; --describe:#a855f7; --place:#ec4899; --render:#10b981;
+    --conv:#3b82f6; --llm:#a855f7; --accent:#f59e0b; --chip:#222735;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.55;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1120px;margin:0 auto;padding:40px 24px 90px}
+  header.hero{padding:14px 0 26px;border-bottom:1px solid var(--line);margin-bottom:30px}
+  .kicker{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
+  h1{font-size:29px;margin:8px 0 6px;font-family:var(--mono)}
+  .sub{color:var(--muted);max-width:760px}
+  .sub b{color:#cdd4e0}
+  h2{font-size:14px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:44px 0 16px;font-weight:600}
+
+  /* pipeline */
+  .pipe{display:flex;flex-wrap:wrap;align-items:stretch;gap:8px}
+  .stage{flex:1;min-width:120px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;cursor:pointer;transition:.16s;position:relative}
+  .stage:hover{transform:translateY(-3px);border-color:var(--sc)}
+  .stage .bar{position:absolute;left:0;top:0;bottom:0;width:4px;border-radius:12px 0 0 12px;background:var(--sc)}
+  .stage .n{font-family:var(--mono);font-size:11px;color:var(--sc);font-weight:700}
+  .stage h3{margin:5px 0 3px;font-size:15px}
+  .stage p{margin:0;color:var(--muted);font-size:12px}
+  .stage[data-s="validate"]{--sc:var(--validate)} .stage[data-s="parse"]{--sc:var(--parse)}
+  .stage[data-s="describe"]{--sc:var(--describe)} .stage[data-s="place"]{--sc:var(--place)}
+  .stage[data-s="render"]{--sc:var(--render)}
+  .arrow{display:flex;align-items:center;color:var(--faint);font-size:18px}
+  @media(max-width:780px){.arrow{display:none}.stage{min-width:46%}}
+
+  /* split paths */
+  .paths{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:16px}
+  @media(max-width:680px){.paths{grid-template-columns:1fr}}
+  .path{border:1px solid var(--line);border-radius:12px;padding:16px;background:linear-gradient(180deg,var(--panel2),var(--panel))}
+  .path h4{margin:0 0 8px;font-size:15px;font-family:var(--mono)}
+  .path.pptx h4{color:var(--parse)} .path.ppt h4{color:var(--place)}
+  .path ul{margin:6px 0 0;padding-left:18px;color:var(--muted);font-size:13px}
+  .path li{margin:4px 0}
+
+  /* filters */
+  .filters{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 18px;align-items:center}
+  .chip{font-family:var(--mono);font-size:12px;padding:6px 12px;border-radius:999px;cursor:pointer;background:var(--chip);border:1px solid var(--line);color:var(--muted);transition:.15s}
+  .chip.active{color:var(--ink);border-color:currentColor}
+  .chip[data-f="conv"].active{color:var(--conv)} .chip[data-f="llm"].active{color:var(--llm)} .chip[data-f="all"].active{color:var(--ink)}
+  .spacer{flex:1}
+  .toggleall{font-family:var(--mono);font-size:11px;color:var(--muted);cursor:pointer;background:none;border:1px solid var(--line);border-radius:6px;padding:6px 10px}
+  .toggleall:hover{color:var(--ink)}
+
+  /* cards */
+  .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+  @media(max-width:780px){.grid{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--sc,var(--line));border-radius:12px;padding:15px}
+  .card[data-file="conv"]{--sc:var(--conv)} .card[data-file="llm"]{--sc:var(--llm)}
+  .card.hide{display:none}
+  .sig{font-family:var(--mono);font-size:13px;color:var(--ink);word-break:break-word}
+  .tags{display:flex;gap:6px;flex-wrap:wrap;margin:9px 0 8px}
+  .tag{font-family:var(--mono);font-size:10px;padding:3px 8px;border-radius:6px;background:var(--chip);color:var(--muted)}
+  .tag.file{color:var(--sc)} .tag.st{color:#cbd5e1}
+  .what{font-size:13px;color:var(--ink);margin:6px 0 6px}
+  .why{font-size:12.5px;color:var(--muted)} .why b{color:#cdd4e0}
+  .codebtn{margin-top:11px;font-family:var(--mono);font-size:11px;background:var(--chip);border:1px solid var(--line);color:var(--muted);border-radius:6px;padding:5px 11px;cursor:pointer}
+  .codebtn:hover{color:var(--ink);border-color:var(--sc)}
+  .code{display:none;margin-top:11px;border-top:1px solid var(--line);padding-top:8px}
+  .code.open{display:block}
+  .ln{padding:5px 0;border-bottom:1px solid rgba(255,255,255,.04)}
+  .ln:last-child{border-bottom:none}
+  .ln code{display:block;white-space:pre-wrap;font-family:var(--mono);font-size:11.5px;color:#d7e6ff;line-height:1.45}
+  .ln .cmt{display:block;font-size:11px;color:var(--muted);margin-top:2px;padding-left:9px;border-left:2px solid var(--sc,var(--line))}
+
+  /* concept callouts */
+  .concepts{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  @media(max-width:780px){.concepts{grid-template-columns:1fr}}
+  .concept{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:15px}
+  .concept h4{margin:0 0 7px;font-size:14px;color:var(--accent)}
+  .concept p{margin:0;font-size:12.5px;color:var(--muted)}
+  footer{margin-top:50px;padding-top:18px;border-top:1px solid var(--line);color:var(--faint);font-size:12.5px}
+  .pill{display:inline-block;font-family:var(--mono);font-size:11px;color:var(--muted);background:var(--chip);border:1px solid var(--line);border-radius:999px;padding:3px 10px;margin-right:6px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="hero">
+    <div class="kicker">.ppt / .pptx → XML · component map</div>
+    <h1>pptx_converter.py + llm.py</h1>
+    <p class="sub"><b>pptx_converter.py</b> parses the deck, dedups images and renders XML;
+    <b>llm.py</b> does all model I/O (vision descriptions + figure→slide matching). Modern
+    <b>.pptx</b> places images exactly; legacy <b>.ppt</b> lost the links, so placement is
+    <b>inferred</b> by the model. Click a stage or a card's <b>show code</b>.</p>
+    <div style="margin-top:14px">
+      <span class="pill">pixel-hash dedup</span><span class="pill">two input paths</span>
+      <span class="pill">inferred .ppt placement</span><span class="pill">OpenAI / Azure</span>
+    </div>
+  </header>
+
+  <h2>The pipeline</h2>
+  <div class="pipe" id="pipe">
+    <div class="stage" data-s="validate"><span class="bar"></span><div class="n">1</div><h3>validate</h3><p>.ppt or .pptx?</p></div>
+    <div class="arrow">→</div>
+    <div class="stage" data-s="parse"><span class="bar"></span><div class="n">2</div><h3>parse</h3><p>slides → blocks; dedup images</p></div>
+    <div class="arrow">→</div>
+    <div class="stage" data-s="describe"><span class="bar"></span><div class="n">3</div><h3>describe</h3><p>vision model writes each image</p></div>
+    <div class="arrow">→</div>
+    <div class="stage" data-s="place"><span class="bar"></span><div class="n">4</div><h3>place <span style="color:var(--faint)">(.ppt)</span></h3><p>infer each image's slide</p></div>
+    <div class="arrow">→</div>
+    <div class="stage" data-s="render"><span class="bar"></span><div class="n">5</div><h3>render</h3><p>stitch into XML</p></div>
+  </div>
+
+  <div class="paths">
+    <div class="path pptx"><h4>.pptx — exact</h4>
+      <p style="margin:0;color:var(--muted);font-size:13px">Each picture is a shape on a slide, so images are placed inline during parsing.</p>
+      <ul><li>parser: <b style="color:#cdd4e0">python-pptx</b></li><li>placement: exact, in reading order</li><li>marker: <code style="color:var(--accent)">[Image N]</code></li><li>skips stage 4</li></ul></div>
+    <div class="path ppt"><h4>.ppt — inferred</h4>
+      <p style="margin:0;color:var(--muted);font-size:13px">The image→slide link is lost. Images are registered in deck order, described, then matched to slides by the model.</p>
+      <ul><li>parser: <b style="color:#cdd4e0">sharepoint2text</b></li><li>placement: LLM match (else proportional spread)</li><li>marker: <code style="color:var(--accent)">[Image N (approximate slide)]</code></li><li>order clamped non-decreasing</li></ul></div>
+  </div>
+
+  <h2>Functions &amp; types — with annotated source</h2>
+  <div class="filters">
+    <span class="chip active" data-f="all">all</span>
+    <span class="chip" data-f="conv">pptx_converter.py</span>
+    <span class="chip" data-f="llm">llm.py</span>
+    <span class="spacer"></span>
+    <button class="toggleall" id="toggleAll">▾ expand all code</button>
+  </div>
+  <div class="grid" id="cards"></div>
+
+  <h2>The three clever bits</h2>
+  <div class="concepts">
+    <div class="concept"><h4>Dedup by pixels, not bytes</h4><p><code>content_digest</code> decodes each image and hashes its pixels. .ppt re-encodes the same picture per slide; pixel-hashing collapses those into one image described once.</p></div>
+    <div class="concept"><h4>Deferred, inferred .ppt placement</h4><p>.ppt loses image→slide links, so images are registered in deck order, described, then <code>match_slides</code> assigns each to a slide — with a proportional spread as fallback.</p></div>
+    <div class="concept"><h4>Trust-but-verify ordering</h4><p>The model suggests a slide per figure, but the code <b>clamps</b> assignments non-decreasing and <b>snaps</b> them to real slides — a bad reply can lower quality but can't corrupt the deck.</p></div>
+  </div>
+
+  <h2>Libraries</h2>
+  <div class="concepts" id="libs"></div>
+
+  <footer>Companion to <span style="font-family:var(--mono)">pptx/pptx_converter.py</span> +
+    <span style="font-family:var(--mono)">pptx/llm.py</span> · full prose in
+    <span style="font-family:var(--mono)">docs/pptx_converter_report.md</span>.
+    Files: <span style="color:var(--conv)">pptx_converter</span> · <span style="color:var(--llm)">llm</span>.</footer>
+</div>
+
+<script>
+const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+const FUNCS = [
+  {sig:"content_digest(blob)", file:"conv", stage:"parse",
+   what:"Hash an image by its decoded PIXELS, not raw bytes.",
+   why:".ppt re-encodes the same picture per slide; pixel-hashing makes identical images collapse to one digest (described once). Falls back to raw-bytes hash if PIL can't open it.",
+   lines:[
+     {c:"with Image.open(BytesIO(blob)) as im:", n:"Decode the image with Pillow."},
+     {c:"    im.convert('RGB').save(buf, 'PNG')", n:"Normalize to RGB and re-encode as PNG."},
+     {c:"    return hashlib.sha1(buf.getvalue()).hexdigest()", n:"Hash the normalized pixels."},
+     {c:"except Exception:", n:"If decoding fails…"},
+     {c:"    return hashlib.sha1(blob).hexdigest()", n:"…fall back to hashing raw bytes."},
+   ]},
+  {sig:"ImageRef / Slide / ImageRegistry", file:"conv", stage:"parse",
+   what:"The data model + dedup engine.",
+   why:"A slide is an ordered list of ('text',str)/('image',id) blocks; the registry maps a content digest to one ImageRef so copies share an id.",
+   lines:[
+     {c:"class ImageRef: image_id, blob, ext, description", n:"One unique image + its description."},
+     {c:"class Slide: number, blocks=[]", n:"Slide = ordered (kind, value) blocks."},
+     {c:"def register(self, blob, ext):", n:"Dedup an image, return its stable id."},
+     {c:"    digest = content_digest(blob)", n:"Pixel hash."},
+     {c:"    if ref is None: ref = ImageRef(len+1, blob, ext)", n:"New image gets the next id."},
+     {c:"    return ref.image_id", n:"Return id (new or existing)."},
+   ]},
+  {sig:"validate_file(file_path)", file:"conv", stage:"validate",
+   what:"Return (path, kind) where kind is 'ppt' or 'pptx'.",
+   why:"The gate that decides which parser runs; raises on a missing file or unsupported type.",
+   lines:[
+     {c:"if not path.exists(): raise FileNotFoundError(...)", n:"Missing file → clear error."},
+     {c:"kind = {'.ppt':'ppt', '.pptx':'pptx'}.get(suffix)", n:"Map extension → kind."},
+     {c:"if kind is None: raise ValueError(...)", n:"Anything else is rejected."},
+     {c:"return path, kind", n:"kind drives the parser choice later."},
+   ]},
+  {sig:"image_from_shape(shape)", file:"conv", stage:"parse",
+   what:"(bytes, ext) if the shape carries a picture, else None.",
+   why:"Handles a real PICTURE shape AND a picture used as a shape fill (charts) via the <a:blip r:embed> relationship.",
+   lines:[
+     {c:"if shape.shape_type == MSO_SHAPE_TYPE.PICTURE:", n:"Case 1: a real picture shape."},
+     {c:"    return shape.image.blob, shape.image.ext.lower()", n:"Direct bytes + ext."},
+     {c:"if int(shape.fill.type) == MSO_FILL_PICTURE:", n:"Case 2: a picture FILL (charts)."},
+     {c:"    blip = shape._element.find('.//' + qn('a:blip'))", n:"Find the image ref in the XML."},
+     {c:"    part = shape.part.related_part(blip.get(qn('r:embed')))", n:"Resolve it to the stored part."},
+     {c:"    return part.blob, part.partname.split('.')[-1]", n:"Bytes + ext from the filename."},
+   ]},
+  {sig:"iter_pptx_blocks(shapes, registry)", file:"conv", stage:"parse",
+   what:"Yield ordered ('text'/'image') blocks for one .pptx slide.",
+   why:"Walks shapes in reading order, recurses groups, registers images (dedup), flattens tables. .pptx images get placed here, exactly.",
+   lines:[
+     {c:"for shape in sorted(shapes, key=shape_sort_key):", n:"Reading order: top, then left."},
+     {c:"    if shape_type == GROUP: yield from iter_pptx_blocks(...)", n:"Recurse into groups."},
+     {c:"    image = image_from_shape(shape)", n:"Is it an image?"},
+     {c:"    if image: yield 'image', registry.register(*image)", n:"Dedup + yield placeholder."},
+     {c:"    if has_text_frame and text: yield 'text', text", n:"Emit native text."},
+     {c:"    if has_table: yield 'text', rows joined", n:"Flatten table to a | b | c rows."},
+   ]},
+  {sig:"parse_pptx(path, registry)", file:"conv", stage:"parse",
+   what:"Build a Slide per .pptx slide, with images placed inline.",
+   why:"The modern path — exact placement, no inference needed.",
+   lines:[
+     {c:"slides = [Slide(n, list(iter_pptx_blocks(slide.shapes, registry)))", n:"One Slide per slide…"},
+     {c:"          for n, slide in enumerate(Presentation(path).slides, 1)]", n:"…numbered from 1."},
+     {c:"log_parse('pptx', ...); return slides", n:"Log summary, return."},
+   ]},
+  {sig:"parse_ppt(path, registry)", file:"conv", stage:"parse",
+   what:"Parse legacy .ppt to text slides; register images in DECK ORDER.",
+   why:"`.ppt` keeps no image→slide link, so images are collected (with image_index) and placed later. Skips vector + tiny rasterized icons.",
+   lines:[
+     {c:"content = next(sharepoint2text.read_file(path))", n:"Read the legacy file."},
+     {c:"for unit in content.iterate_units():", n:"One unit per slide, deck order."},
+     {c:"    blocks += title / text", n:"Slide title + body become text blocks."},
+     {c:"    for image in unit.get_images():", n:"Collect images (not placed yet)."},
+     {c:"        if ext is None: skipped_vector += 1", n:"WMF/EMF can't rasterize → skip."},
+     {c:"        elif min(w,h) < MIN_IMAGE_DIM: skipped_small += 1", n:"Tiny icon/badge → skip."},
+     {c:"        else: pending.append((image_index, blob, ext))", n:"Keep with deck-order index."},
+     {c:"for _, blob, ext in sorted(pending): registry.register(...)", n:"Register in deck order."},
+   ]},
+  {sig:"proportional_mapping(slides, images)", file:"conv", stage:"place",
+   what:"Spread deck-ordered images evenly across slides.",
+   why:"The fallback when the LLM match is unavailable/disabled — always yields some placement.",
+   lines:[
+     {c:"{img.image_id: slides[(i+0.5)*n/len(images)].number", n:"Figure i of M → slide ~i/M."},
+     {c:" for i, img in enumerate(images)}", n:"Even spread across the deck."},
+   ]},
+  {sig:"place_legacy_images(slides, images, ...)", file:"conv", stage:"place",
+   what:"Place .ppt images by inferred slide, falling back to a spread.",
+   why:"Calls llm.match_slides; on None falls back to proportional. All-or-nothing: never half-places.",
+   lines:[
+     {c:"if infer_placement: mapping = llm.match_slides(slides, figures, ...)", n:"Ask the model."},
+     {c:"if mapping is None: mapping = proportional_mapping(...)", n:"Fall back on failure."},
+     {c:"for image in images:", n:"Apply the full map…"},
+     {c:"    by_number[mapping[id]].blocks.append(('image', id))", n:"…append each to its slide."},
+   ]},
+  {sig:"render_xml(slides, by_id, ...)", file:"conv", stage:"render",
+   what:"Stitch slides into the <documents>/<document> XML.",
+   why:"Text inline, each image → [Image N] + description. .ppt adds '(approximate slide)'.",
+   lines:[
+     {c:"suffix = ' (approximate slide)' if approx_images else ''", n:".ppt placement is inferred."},
+     {c:"for kind, value in slide.blocks:", n:"Walk blocks in order."},
+     {c:"    if kind=='text': parts.append(value)", n:"Text as-is."},
+     {c:"    else: parts.append(f'[Image {value}{suffix}]\\n{desc}')", n:"Image → label + description."},
+     {c:"return '<documents>...<document ...>{body}</document>...'", n:"Wrap in the template."},
+   ]},
+  {sig:"pptx_converter(file_path, output_dir, ...)", file:"conv", stage:"render",
+   what:"The public entry point — the whole pipeline.",
+   why:"validate → parse(by kind) → (if images) client+describe, place for .ppt → render → write.",
+   lines:[
+     {c:"path, kind = validate_file(file_path)", n:"Stage 1."},
+     {c:"slides = parse_pptx(...) if kind=='pptx' else parse_ppt(...)", n:"Stage 2, by kind."},
+     {c:"if images:", n:"Only if there are images…"},
+     {c:"    client = llm.get_client(client)", n:"Resolve once (shared by describe + place)."},
+     {c:"    llm.describe_images(images, ...)", n:"Stage 3: vision descriptions."},
+     {c:"    if kind=='ppt': place_legacy_images(...)", n:"Stage 4: only for .ppt."},
+     {c:"xml = render_xml(...); write if output_dir; return xml", n:"Stage 5 + output."},
+   ]},
+  {sig:"main(argv)", file:"conv", stage:"validate",
+   what:"CLI: parse args, configure logging, run, clean errors.",
+   why:"--no-infer-placement switches .ppt to the proportional spread.",
+   lines:[
+     {c:"parser.add_argument('file', type=Path)", n:"The .ppt/.pptx path."},
+     {c:"parser.add_argument('--no-infer-placement', action='store_true')", n:"Skip LLM match for .ppt."},
+     {c:"try: pptx_converter(...) except (FileNotFoundError, ValueError): parser.error(...)", n:"Clean CLI errors."},
+   ]},
+  {sig:"get_client(client=None)", file:"llm", stage:"describe",
+   what:"Resolve the client: given → Azure (if env) → OpenAI.",
+   why:"A caller-supplied client wins; else AzureOpenAI if AZURE_OPENAI_ENDPOINT is set; else OpenAI. Lazy imports.",
+   lines:[
+     {c:"if client is not None: return client", n:"Caller-supplied wins."},
+     {c:"if os.environ.get('AZURE_OPENAI_ENDPOINT'):", n:"Azure configured?"},
+     {c:"    return AzureOpenAI(api_version=...)", n:"Use Azure (env: endpoint/key/version)."},
+     {c:"return OpenAI()", n:"Else plain OpenAI."},
+   ]},
+  {sig:"_data_url(blob, ext)", file:"llm", stage:"describe",
+   what:"Image bytes → data:image/...;base64 URL.",
+   why:"SVG is rasterized to PNG first (PyMuPDF); MIME chosen from the extension.",
+   lines:[
+     {c:"if ext == 'svg': blob = fitz...tobytes('png'); ext='png'", n:"Rasterize SVG → PNG."},
+     {c:"mime = 'jpeg' if jpg/jpeg else (ext if raster else 'png')", n:"Pick a valid MIME."},
+     {c:"return f'data:image/{mime};base64,{b64(blob)}'", n:"Assemble the data URL."},
+   ]},
+  {sig:"describe_images(images, ...)", file:"llm", stage:"describe",
+   what:"Concurrent vision descriptions; sets image.description in place.",
+   why:"Chat Completions API: messages with text + image_url; reads choices[0].message.content. Per-image try/except.",
+   lines:[
+     {c:"response = client.chat.completions.create(", n:"Chat Completions (not Responses)."},
+     {c:"    messages=[{'role':'user','content':[", n:"One user message…"},
+     {c:"        {'type':'text','text':prompt},", n:"…the prompt…"},
+     {c:"        {'type':'image_url','image_url':{'url':_data_url(...)}}]}])", n:"…and the image (nested url)."},
+     {c:"image.description = response.choices[0].message.content", n:"Store the reply."},
+     {c:"with ThreadPoolExecutor(...) as pool: pool.map(describe, images)", n:"Run all concurrently."},
+   ]},
+  {sig:"match_slides(slides, figures, ...)", file:"llm", stage:"place",
+   what:"Ask which slide each figure belongs to → {id: slide} or None.",
+   why:"The prompt asks for non-decreasing order; the CODE then clamps + snaps so the model can't reorder the deck. None on any failure → caller falls back.",
+   lines:[
+     {c:"user = 'Slides:...' + 'Figures (in deck order):...'", n:"List slides + figures, in order."},
+     {c:"replies = json.loads(strip_fence(raw))", n:"Parse the {figure: slide} JSON."},
+     {c:"except Exception: return None", n:"Any failure → fall back."},
+     {c:"target = min(max(target, prev), valid[-1])", n:"Clamp: non-decreasing, ≤ last slide."},
+     {c:"target = next(n for n in valid if n >= target)", n:"Snap forward to a real slide."},
+     {c:"mapping[fid] = prev = target", n:"Record; prev enforces order for the next figure."},
+   ]},
+];
+
+const LIBS = [
+  {name:"python-pptx", role:"Parse .pptx: walk shapes/groups, read text/tables, extract images (incl. picture fills)."},
+  {name:"sharepoint2text", role:"Parse legacy .ppt into per-slide units with title/text/images in deck order."},
+  {name:"Pillow (PIL)", role:"Decode images to normalize + pixel-hash them for content-based dedup."},
+  {name:"PyMuPDF (fitz)", role:"Rasterize SVG images to PNG (lazy-imported, only when an SVG appears)."},
+  {name:"openai", role:"AzureOpenAI / OpenAI clients; chat.completions for vision + figure matching."},
+  {name:"stdlib", role:"hashlib (dedup), json + re (parse placement reply), concurrent.futures (parallel calls), argparse, logging."},
+];
+
+const cards = document.getElementById('cards');
+FUNCS.forEach(f => {
+  const el = document.createElement('div');
+  el.className = 'card'; el.dataset.file = f.file;
+  const code = f.lines ? `<button class="codebtn">▾ show code</button>
+    <div class="code">${f.lines.map(L=>`<div class="ln"><code>${esc(L.c)}</code><span class="cmt">${esc(L.n)}</span></div>`).join('')}</div>` : '';
+  el.innerHTML = `<div class="sig">${esc(f.sig)}</div>
+    <div class="tags"><span class="tag file">${f.file === 'conv' ? 'pptx_converter' : 'llm'}</span>
+      <span class="tag st">${f.stage}</span></div>
+    <div class="what">${f.what}</div><div class="why"><b>Why:</b> ${f.why}</div>${code}`;
+  cards.appendChild(el);
+});
+
+const libs = document.getElementById('libs');
+LIBS.forEach(l => {
+  const el = document.createElement('div'); el.className = 'concept';
+  el.innerHTML = `<h4 style="color:#7dd3fc">${esc(l.name)}</h4><p>${l.role}</p>`;
+  libs.appendChild(el);
+});
+
+document.querySelectorAll('.codebtn').forEach(b => b.onclick = () => {
+  const open = b.nextElementSibling.classList.toggle('open');
+  b.textContent = open ? '▴ hide code' : '▾ show code';
+});
+function filter(file){
+  document.querySelectorAll('.card').forEach(c => c.classList.toggle('hide', file!=='all' && c.dataset.file!==file));
+  document.querySelectorAll('.chip').forEach(c => c.classList.toggle('active', c.dataset.f===file));
+}
+document.querySelectorAll('.chip').forEach(c => c.onclick = () => filter(c.dataset.f));
+document.querySelectorAll('.stage').forEach(s => s.onclick = () => {
+  const map = {validate:'conv', parse:'conv', describe:'llm', place:'llm', render:'conv'};
+  cards.scrollIntoView({behavior:'smooth', block:'start'});
+});
+const toggleAll = document.getElementById('toggleAll');
+toggleAll.onclick = () => {
+  const expand = toggleAll.textContent.includes('expand');
+  document.querySelectorAll('.code').forEach(c => c.classList.toggle('open', expand));
+  document.querySelectorAll('.codebtn').forEach(b => b.textContent = expand ? '▴ hide code' : '▾ show code');
+  toggleAll.textContent = expand ? '▴ collapse all code' : '▾ expand all code';
+};
+</script>
+</body>
+</html>

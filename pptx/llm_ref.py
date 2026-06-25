@@ -1,18 +1,13 @@
-"""LLM config and calls: vision descriptions + figure-to-slide matching.
 
-Kept separate from parsing/rendering so all model config and API I/O live in one place.
-Functions take plain data (no Slide/ImageRef types) so this module has no project imports.
-"""
 import base64
 import json
 import logging
 import re
 from concurrent.futures import ThreadPoolExecutor
-
 logger = logging.getLogger(__name__)
 
 # --- config ----------------------------------------------------------------- #
-DEFAULT_MODEL = "gpt-4.1"           # vision model (for Azure, the deployment name)
+DEFAULT_MODEL = "gpt-4.1-deployment"           # vision model (for Azure, the deployment name)
 DEFAULT_MAX_WORKERS = 8             # concurrent description requests
 IMAGE_DETAIL = "high"               # vision detail level
 PLACEMENT_SLIDE_TEXT_CAP = 600      # chars of slide text sent to the placement model
@@ -40,11 +35,15 @@ PLACEMENT_PROMPT = (
 
 # --- client ----------------------------------------------------------------- #
 def get_client(client=None):
-    """The given client, or a default OpenAI() from OPENAI_* env vars."""
     if client is not None:
         return client
-    from openai import OpenAI
-    return OpenAI()
+    import os
+    from openai import AzureOpenAI
+    return AzureOpenAI(
+        azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
+        api_key=os.environ["AZURE_OPENAI_API_KEY"],
+        api_version=os.environ.get("OPENAI_API_VERSION", "2024-10-21"),
+    )
 
 
 def _data_url(blob: bytes, ext: str) -> str:
@@ -59,10 +58,7 @@ def _data_url(blob: bytes, ext: str) -> str:
 # --- vision description ------------------------------------------------------ #
 def describe_images(images, *, model=DEFAULT_MODEL, max_workers=DEFAULT_MAX_WORKERS,
                     prompt=IMAGE_PROMPT, client=None):
-    """Set each image's .description in place via a vision model, concurrently.
 
-    images: objects with .blob, .ext, .image_id; .description is written here.
-    """
     client = get_client(client)
     workers = min(max_workers, len(images))
     logger.info("describing %d images via %s (%d concurrent)", len(images), model, workers)
