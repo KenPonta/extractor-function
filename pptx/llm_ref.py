@@ -1,16 +1,18 @@
-
-import base64
-import json
-import logging
+import os
 import re
+import json
+import base64
+import logging
 from concurrent.futures import ThreadPoolExecutor
+from openai import AzureOpenAI
+
 logger = logging.getLogger(__name__)
 
-# --- config ----------------------------------------------------------------- #
-DEFAULT_MODEL = "gpt-4.1-deployment"           # vision model (for Azure, the deployment name)
-DEFAULT_MAX_WORKERS = 8             # concurrent description requests
-IMAGE_DETAIL = "high"               # vision detail level
-PLACEMENT_SLIDE_TEXT_CAP = 600      # chars of slide text sent to the placement model
+# Model + request configuration (model is the Azure deployment name).
+DEFAULT_MODEL = "gpt-4.1-deployment"     # vision model / Azure deployment name
+DEFAULT_MAX_WORKERS = 8                  # concurrent description requests
+IMAGE_DETAIL = "high"                    # vision detail level
+PLACEMENT_SLIDE_TEXT_CAP = 600           # chars of slide text sent to the placement model
 RASTER_EXT = {"png", "jpg", "jpeg", "gif", "webp"}
 
 IMAGE_PROMPT = (
@@ -33,33 +35,49 @@ PLACEMENT_PROMPT = (
 )
 
 
-# --- client ----------------------------------------------------------------- #
-def get_client(client=None):
-    if client is not None:
-        return client
-    import os
-    from openai import AzureOpenAI
+#Custom exception for LLM call errors
+class LLMError(RuntimeError):
+    """Raised when an LLM request cannot be completed."""
+
+# Functionality: Read a required environment variable and validate that it exists.
+# Return: The environment variable value as a string.
+# Used by: get_azure_openai_client().
+def get_required_env(name: str) -> str:
+    value = os.getenv(name)
+    if not value:
+        raise LLMError(f"Missing required environment variable: {name}")
+    return value
+
+# Functionality: Create an authenticated Azure OpenAI client from environment settings.
+# Return: A configured AzureOpenAI client.
+# Used by: describe_images() and match_slides().
+def get_azure_openai_client() -> AzureOpenAI:
     return AzureOpenAI(
-        azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
-        api_key=os.environ["AZURE_OPENAI_API_KEY"],
-        api_version=os.environ.get("OPENAI_API_VERSION", "2024-10-21"),
+        api_version=get_required_env("AZURE_OPENAI_API_VERSION"),
+        azure_endpoint=get_required_env("AZURE_OPENAI_ENDPOINT"),
+        api_key=get_required_env("AZURE_OPENAI_API_KEY"),
+        timeout=30,
+        max_retries=2,
     )
 
-
-def _data_url(blob: bytes, ext: str) -> str:
-    if ext == "svg":
+# Functionality: Encode an image's bytes as a base64 data URL for vision input.
+# Return: A data URL string containing the image MIME type and base64 content.
+# Used by: describe_images().
+def encode_image_to_data_url(blob: bytes, ext: str) -> str:
+    if ext == "svg":  # rasterize vector to PNG; the vision API takes raster only
         import fitz
         blob = fitz.open(stream=blob, filetype="svg")[0].get_pixmap().tobytes("png")
         ext = "png"
     mime = "jpeg" if ext in ("jpg", "jpeg") else (ext if ext in RASTER_EXT else "png")
     return f"data:image/{mime};base64,{base64.b64encode(blob).decode('ascii')}"
 
-
-# --- vision description ------------------------------------------------------ #
+# Functionality: Describe each image with the vision model, concurrently, in place.
+# Return: None (each image's .description attribute is set).
+# Used by: pptx_converter().
 def describe_images(images, *, model=DEFAULT_MODEL, max_workers=DEFAULT_MAX_WORKERS,
                     prompt=IMAGE_PROMPT, client=None):
-
-    client = get_client(client)
+    """images: objects with .blob, .ext, .image_id; .description is written here."""
+    client = client or get_azure_openai_client()
     workers = min(max_workers, len(images))
     logger.info("describing %d images via %s (%d concurrent)", len(images), model, workers)
 
@@ -70,7 +88,8 @@ def describe_images(images, *, model=DEFAULT_MODEL, max_workers=DEFAULT_MAX_WORK
                 messages=[{"role": "user", "content": [
                     {"type": "text", "text": prompt},
                     {"type": "image_url", "image_url": {
-                        "url": _data_url(image.blob, image.ext), "detail": IMAGE_DETAIL}}]}])
+                        "url": encode_image_to_data_url(image.blob, image.ext),
+                        "detail": IMAGE_DETAIL}}]}])
             image.description = (response.choices[0].message.content or "").strip()
         except Exception as exc:
             logger.warning("image %d failed: %s", image.image_id, exc)
@@ -79,29 +98,23 @@ def describe_images(images, *, model=DEFAULT_MODEL, max_workers=DEFAULT_MAX_WORK
     with ThreadPoolExecutor(max_workers=workers) as pool:
         pool.map(describe, images)
 
-
-# --- figure-to-slide matching ----------------------------------------------- #
-def match_slides(slides, figures, *, model=DEFAULT_MODEL, client=None) -> dict | None:
-    """Ask the model which slide each figure belongs to; return {figure_id: slide} or None.
-
-    slides:  [(number, text), ...] in deck order.   figures: [(id, description), ...] in deck order.
-    Assignments are clamped non-decreasing, so the model can pick a slide within the right
-    region but cannot reorder the deck. Returns None on any failure so the caller can fall back.
-    """
-    client = get_client(client)
+# Functionality: Ask the model which slide each figure belongs to, in deck order.
+# Return: A {figure_id: slide_number} dict, with assignments clamped non-decreasing.
+# Used by: place_legacy_images() in pptx_converter.
+def match_slides(slides, figures, *, model=DEFAULT_MODEL, client=None) -> dict:
+    # slides: [(number, text), ...] in deck order.   figures: [(id, description), ...] in deck order.
+    # Placement is always LLM-driven (no heuristic fallback), so API/JSON errors propagate;
+    # only a single omitted figure is tolerated (kept on the prior slide).
+    client = client or get_azure_openai_client()
     slide_lines = [f"Slide {n}: {(text or '')[:PLACEMENT_SLIDE_TEXT_CAP]}" for n, text in slides]
     figure_lines = [f"Figure {i}: {desc or '(no description)'}" for i, desc in figures]
     user = "Slides:\n" + "\n".join(slide_lines) + "\n\nFigures (in deck order):\n" + "\n".join(figure_lines)
-    try:
-        response = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "system", "content": PLACEMENT_PROMPT},
-                      {"role": "user", "content": user}])
-        raw = (response.choices[0].message.content or "").strip()
-        replies = json.loads(re.sub(r"^```(?:json)?|```$", "", raw).strip())  # tolerate a code fence
-    except Exception as exc:
-        logger.warning("LLM placement failed (%s); falling back", exc)
-        return None
+    response = client.chat.completions.create(
+        model=model,
+        messages=[{"role": "system", "content": PLACEMENT_PROMPT},
+                  {"role": "user", "content": user}])
+    raw = (response.choices[0].message.content or "").strip()
+    replies = json.loads(re.sub(r"^```(?:json)?|```$", "", raw).strip())  # tolerate a code fence
 
     valid = sorted(n for n, _ in slides)
     mapping, prev = {}, valid[0]
@@ -109,8 +122,8 @@ def match_slides(slides, figures, *, model=DEFAULT_MODEL, client=None) -> dict |
         try:
             target = int(replies[str(fid)])
         except (KeyError, ValueError, TypeError):
-            logger.warning("placement model omitted figure %s; falling back", fid)
-            return None
+            logger.warning("placement model omitted figure %s; keeping it on slide %s", fid, prev)
+            target = prev
         target = min(max(target, prev), valid[-1])          # clamp into [prev, last]
         target = next(n for n in valid if n >= target)      # snap forward to a real slide
         mapping[fid] = prev = target

@@ -5,6 +5,11 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
+try:
+    import env_local  # noqa: F401  gitignored; sets AZURE_OPENAI_* in os.environ on import
+except ImportError:
+    pass
+
 import llm_ref as llm
 from llm_ref import DEFAULT_MAX_WORKERS, DEFAULT_MODEL, IMAGE_PROMPT
 
@@ -21,7 +26,7 @@ RASTER_MIME_EXT = {
 MIN_IMAGE_DIM = 150
 
 
-# --- data model ------------------------------------------------------------- #
+#data model
 def content_digest(blob: bytes) -> str:
     """Hash by decoded pixels so .ppt's per-slide re-encodings of one image collapse into one."""
     try:
@@ -182,27 +187,16 @@ def parse_ppt(path, registry) -> list:
 
 
 # --- legacy .ppt image placement -------------------------------------------- #
-# .ppt has no readable picture-to-slide link, so placement is inferred: llm.match_slides()
-# matches each figure to the best-fitting slide, else a proportional spread. Either way a
-# {image_id: slide} map is applied, so a failed/partial inference never half-places.
-def proportional_mapping(slides, images) -> dict:
-    """Spread deck-ordered images evenly across slides (fallback when the LLM is unavailable)."""
-    n = len(slides)
-    return {img.image_id: slides[min(n - 1, int((i + 0.5) * n / len(images)))].number
-            for i, img in enumerate(images)}
-
-
-def place_legacy_images(slides, images, model, client, infer_placement=True) -> None:
-    """Place .ppt images inline by inferred slide, falling back to a proportional spread."""
+# .ppt has no readable picture-to-slide link, so each figure is matched to its slide by the
+# LLM (llm.match_slides), which builds a {image_id: slide} map. Any API/parse failure there
+# propagates — there is no heuristic fallback.
+def place_legacy_images(slides, images, model, client) -> None:
+    """Place .ppt images inline on their LLM-inferred slide."""
     if not (slides and images):
         return
-    mapping = None
-    if infer_placement:
-        mapping = llm.match_slides([(s.number, slide_text(s)) for s in slides],
-                                   [(im.image_id, im.description) for im in images],
-                                   model=model, client=client)
-    if mapping is None:
-        mapping = proportional_mapping(slides, images)
+    mapping = llm.match_slides([(s.number, slide_text(s)) for s in slides],
+                               [(im.image_id, im.description) for im in images],
+                               model=model, client=client)
     by_number = {s.number: s for s in slides}
     for image in images:
         by_number[mapping[image.image_id]].blocks.append(("image", image.image_id))
@@ -229,12 +223,11 @@ def render_xml(slides, by_id, filename, data_type, index=1, approx_images=False)
 # --- entry point ------------------------------------------------------------ #
 def pptx_converter(file_path, output_dir=None, *, model=DEFAULT_MODEL,
                    max_workers=DEFAULT_MAX_WORKERS, prompt=IMAGE_PROMPT,
-                   data_type=None, client=None, infer_placement=True) -> str:
+                   data_type=None, client=None) -> str:
     """Convert a .ppt/.pptx to placeholder XML (and write it to output_dir if given).
 
-    .pptx places images on their exact slide; .ppt placement is inferred (LLM match in deck
-    order, else a proportional spread). Pass client=AzureOpenAI(...) to force Azure; set
-    infer_placement=False to skip the LLM step for .ppt.
+    .pptx places images on their exact slide; .ppt placement is inferred by the LLM in deck
+    order. Pass client=... to inject a specific OpenAI/AzureOpenAI instance.
     """
     path, kind = validate_file(file_path)
     registry = ImageRegistry()
@@ -242,10 +235,10 @@ def pptx_converter(file_path, output_dir=None, *, model=DEFAULT_MODEL,
 
     images = registry.images
     if images:
-        client = llm.get_client(client)        # resolve once so describe + placement share it
+        client = client or llm.get_azure_openai_client()  # resolve once; describe + placement share it
         llm.describe_images(images, model=model, max_workers=max_workers, prompt=prompt, client=client)
         if kind == "ppt":                      # .pptx already placed images during parse
-            place_legacy_images(slides, images, model, client, infer_placement)
+            place_legacy_images(slides, images, model, client)
 
     by_id = {image.image_id: image for image in images}
     xml = render_xml(slides, by_id, path.name, data_type or kind.upper(), approx_images=(kind == "ppt"))
@@ -263,15 +256,12 @@ def main(argv=None):
     parser.add_argument("-o", "--out", type=Path, default="output", help="output directory")
     parser.add_argument("-m", "--model", default=DEFAULT_MODEL)
     parser.add_argument("--data-type", default=None)
-    parser.add_argument("--no-infer-placement", action="store_true",
-                        help="for .ppt, skip LLM slide-matching and spread images proportionally")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stderr)
     logging.getLogger("httpx").setLevel(logging.WARNING)
     try:
-        pptx_converter(args.file, args.out, model=args.model, data_type=args.data_type,
-                       infer_placement=not args.no_infer_placement)
+        pptx_converter(args.file, args.out, model=args.model, data_type=args.data_type)
     except (FileNotFoundError, ValueError) as exc:
         parser.error(str(exc))
 
