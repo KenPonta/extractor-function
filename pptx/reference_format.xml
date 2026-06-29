@@ -1,0 +1,333 @@
+<documents>
+  <document index="1" filename="tcm_1_6a34efa4b39559da7f2ca899.txt" data-type="TCM">
+metadata:
+  source_file: TC3_ST-TCM_ChaiLAI_TestCaseAgent_v0.1(Template 4.0) Update_2.xlsx
+  sheet_name: 2.TCM
+  total_test_cases: 5
+  header_structure:
+  - Requirement ID
+  - Priority
+  - Application ID/Name
+  - Doc Ref
+  - Use Case ID/Function Name
+  - Reviewing Group
+  - Test Scenario/Case ID
+  - Test Scenario/Case Description
+  - Pre-requisite
+  - Link From > Application
+  - Link From > Function
+  - Format File > Excel
+  - Format File > yaml
+  - Format File > Other
+  - Total File Size > <10MB
+  - Total File Size > 10MB
+  - Total File Size > >10MB
+  - Quantity of File > 1
+  - Quantity of File > >1
+  - Quantity of File > None
+  - TCM completion > Complete
+  - TCM completion > No mandatoty
+  - TCM completion > No descripion
+  - TCM completion > No mark condition
+  - TCM completion > No record (Blank)
+test_cases:
+- _row_index: 6
+  Application ID/Name: 698.15 - Chai LAI
+  Test Scenario/Case ID: TS_698.15_TestCaseAgent_00006
+  Test Scenario/Case Description: ตรวจสอบการ generate test case กรณีข้อมูลในไฟล์ TCM
+    มีแต่ Test Scenario/Case Description แต่ไม่ได้ mark x ที่ condition เลย
+  Format File > Excel: true
+  Total File Size > <10MB: true
+  Quantity of File > 1: true
+  TCM completion > No mark condition: true
+- _row_index: 7
+  Application ID/Name: 698.15 - Chai LAI
+  Test Scenario/Case ID: TS_698.15_TestCaseAgent_00007
+  Test Scenario/Case Description: ตรวจสอบการ generate test case กรณีข้อมูลในไฟล์ TCM
+    ทำการ  mark x ที่ condition แต่ไม่มีข้อมูล Test Scenario/Case Description
+  Format File > Excel: true
+  Total File Size > <10MB: true
+  Quantity of File > 1: true
+  TCM completion > No descripion: true
+- _row_index: 8
+  Application ID/Name: 698.15 - Chai LAI
+  Test Scenario/Case ID: TS_698.15_TestCaseAgent_00008
+  Test Scenario/Case Description: ตรวจสอบการ generate test case กรณีข้อมูลในไฟล์ TCM
+    แสดงข้อมูลครบถ้วน ยกเว้น Application ID/Name ที่เป็น Mandatory
+  Format File > Excel: true
+  Total File Size > <10MB: true
+  Quantity of File > 1: true
+  TCM completion > No mandatoty: true
+- _row_index: 9
+  Application ID/Name: 698.15 - Chai LAI
+  Test Scenario/Case ID: TS_698.15_TestCaseAgent_00009
+  Test Scenario/Case Description: ตรวจสอบการ generate test case กรณีแนบไฟล์ TCM ตาม
+    template ที่กำหนด โดยมี file tpye และ size ถูกต้องตามเงื่อนไข และข้อมูลในไฟล์
+    TCM แสดงข้อมูลครบถ้วน
+  Format File > Excel: true
+  Total File Size > <10MB: true
+  Quantity of File > 1: true
+  TCM completion > Complete: true
+- _row_index: 10
+  Application ID/Name: 698.15 - Chai LAI
+  Test Scenario/Case ID: TS_698.15_TestCaseAgent_00010
+  Test Scenario/Case Description: ตรวจสอบการพิมพ์ prompt ในไฉไล กรณีสั่งให้สร้าง Test
+    case จาก TCM แต่ไม่ได้แนบไฟล์
+  Format File > Excel: true
+  Total File Size > <10MB: true
+  Quantity of File > None: true
+  </document>
+  <document index="2" filename="tcm_2_6a34efa4b39559da7f2ca899.txt" data-type="TCM">
+metadata:
+  source_file: TC3_ST-TCM_ChaiLAI_TestCaseAgent_v0.1(Template 4.0) Update_1.xlsx
+  sheet_name: 2.TCM
+  total_test_cases: 5
+  header_structure:
+  - Requirement ID
+  - Priority
+  - Application ID/Name
+  - Doc Ref
+  - Use Case ID/Function Name
+  - Reviewing Group
+  - Test Scenario/Case ID
+  - Test Scenario/Case Description
+  - Pre-requisite
+  - Link From > Application
+  - Link From > Function
+  - Format File > Excel
+  - Format File > yaml
+  - Format File > Other
+  - Total File Size > <10MB
+  - Total File Size > 10MB
+  - Total File Size > >10MB
+  - Quantity of File > 1
+  - Quantity of File > >1
+  - Quantity of File > None
+  - TCM completion > Complete
+  - TCM completion > No mandatoty
+  - TCM completion > No descripion
+  - TCM completion > No mark condition
+  - TCM completion > No record (Blank)
+test_cases:
+- _row_index: 6
+  Application ID/Name: 698.15 - Chai LAI
+  Test Scenario/Case ID: TS_698.15_TestCaseAgent_00001
+  Test Scenario/Case Description: ตรวจสอบการ upload TCM Template file ที่มี 1 ไฟล์
+    และขนาดไม่เกิน 10MB
+  Pre-requisite: '- TCM Template (.xls and .xlsx)
+
+    - only 1 file
+
+    - size not over 10MB'
+  Format File > Excel: true
+  Total File Size > <10MB: true
+  Total File Size > 10MB: true
+  Quantity of File > 1: true
+  TCM completion > Complete: true
+- _row_index: 7
+  Application ID/Name: 698.15 - Chai LAI
+  Test Scenario/Case ID: TS_698.15_TestCaseAgent_00002
+  Test Scenario/Case Description: ตรวจสอบการ upload TCM Template file ที่มี 1 ไฟล์
+    แต่เกิน 10MB
+  Pre-requisite: '- TCM Template (.xls or .xlsx)
+
+    - only 1 file
+
+    - size more than 10MB'
+  Format File > Excel: true
+  Total File Size > >10MB: true
+  Quantity of File > 1: true
+  TCM completion > Complete: true
+- _row_index: 8
+  Application ID/Name: 698.15 - Chai LAI
+  Test Scenario/Case ID: TS_698.15_TestCaseAgent_00003
+  Test Scenario/Case Description: ตรวจสอบการ upload TCM Template file มากกว่า 1 ไฟล์
+    และขนาดไม่เกิน 10MB
+  Pre-requisite: '- TCM Template (.xls or .xlsx)
+
+    - TCM Template more than 1 file
+
+    - total size not over 10MB'
+  Format File > Excel: true
+  Format File > yaml: true
+  Total File Size > <10MB: true
+  Total File Size > 10MB: true
+  Quantity of File > >1: true
+  TCM completion > Complete: true
+- _row_index: 9
+  Application ID/Name: 698.15 - Chai LAI
+  Test Scenario/Case ID: TS_698.15_TestCaseAgent_00004
+  Test Scenario/Case Description: ตรวจสอบการ upload TCM Template file มากกว่า 1 ไฟล์
+    แต่ละไฟล์ไม่เกิน 10MB แต่เมื่อรวมกันแล้วเกิน 10MB
+  Pre-requisite: '- TCM Template (.xls or .xlsx) 1 file
+
+    - other file (txt, yaml)
+
+    - total size more than 10MB'
+  Format File > Excel: true
+  Format File > yaml: true
+  Total File Size > >10MB: true
+  Quantity of File > >1: true
+  TCM completion > Complete: true
+- _row_index: 10
+  Application ID/Name: 698.15 - Chai LAI
+  Test Scenario/Case ID: TS_698.15_TestCaseAgent_00005
+  Test Scenario/Case Description: ตรวจสอบการ generate test case กรณีข้อมูลในไฟล์ TCM
+    ไม่มี Test Scenario/Case Description เลย (มีแต่ Header)
+  Format File > Excel: true
+  Total File Size > <10MB: true
+  Quantity of File > 1: true
+  TCM completion > No record (Blank): true
+  </document>
+  <document index="3" filename="yaml_1_6a34efa4b39559da7f2ca899.txt" data-type="Requirement">
+    components:
+      responses:
+        BadRequest:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Invalid request payload or parameters
+        ErrorResponse:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Standard error envelope
+        InternalError:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: Unexpected server error
+        NotFound:
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+          description: The requested resource was not found
+      schemas:
+        CreateOrderRequest:
+          properties:
+            customer_id:
+              example: cust-001
+              type: string
+            total:
+              example: 250.0
+              format: double
+              minimum: 0.01
+              type: number
+          required:
+          - customer_id
+          - total
+          type: object
+        ErrorResponse:
+          properties:
+            error:
+              example: order with id 99 not found
+              type: string
+          required:
+          - error
+          type: object
+        OrderResponse:
+          description: API response object for an Order.
+          properties:
+            created_at:
+              description: ISO-8601, UTC timestamp of when the order was created.
+              example: '2026-02-01T00:00:00Z'
+              format: date-time
+              type: string
+            customer_id:
+              example: cust-001
+              type: string
+            estimated_delivery_date:
+              description: ISO-8601, UTC timestamp of the estimated delivery date. Calculated
+                as exactly 3 days after created_at (UTC).
+              example: '2026-02-04T00:00:00Z'
+              format: date-time
+              type: string
+            id:
+              example: 1
+              type: integer
+            status:
+              enum:
+              - pending
+              - confirmed
+              - shipped
+              - delivered
+              - cancelled
+              example: pending
+              type: string
+            total:
+              example: 250.0
+              format: double
+              type: number
+          required:
+          - id
+          - customer_id
+          - total
+          - status
+          - created_at
+          - estimated_delivery_date
+          type: object
+    info:
+      description: REST API for managing Orders.
+      title: Simple Go Project – Order API
+      version: 1.0.0
+    openapi: 3.0.3
+    paths:
+      /orders:
+        post:
+          operationId: createOrder
+          requestBody:
+            content:
+              application/json:
+                example:
+                  customer_id: cust-001
+                  total: 250.0
+                schema:
+                  $ref: '#/components/schemas/CreateOrderRequest'
+            required: true
+          responses:
+            '201':
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/OrderResponse'
+              description: Order created successfully
+            '400':
+              $ref: '#/components/responses/BadRequest'
+            '500':
+              $ref: '#/components/responses/InternalError'
+          summary: Create a new order
+          tags:
+          - orders
+      /orders/{id}:
+        get:
+          operationId: getOrderById
+          parameters:
+          - description: Numeric ID of the order to retrieve
+            in: path
+            name: id
+            required: true
+            schema:
+              type: integer
+          responses:
+            '200':
+              content:
+                application/json:
+                  schema:
+                    $ref: '#/components/schemas/OrderResponse'
+              description: Order found
+            '400':
+              $ref: '#/components/responses/BadRequest'
+            '404':
+              $ref: '#/components/responses/NotFound'
+          summary: Get an order by ID
+          tags:
+          - orders
+    servers:
+    - description: v1 prefix for all routes
+      url: api/v1
+  </document>
+</documents>

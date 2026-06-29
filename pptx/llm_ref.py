@@ -35,6 +35,25 @@ PLACEMENT_PROMPT = (
 )
 
 
+# Functionality: Load KEY=value lines from the nearest .env file into os.environ (once, at import).
+# Return: None.
+# Used by: module import, so get_required_env() finds .env values during local runs.
+#          A real environment variable (e.g. exported / injected in prod) still wins (setdefault).
+def _load_dotenv() -> None:
+    from pathlib import Path
+    for directory in (Path.cwd(), *Path(__file__).resolve().parents):
+        env_file = directory / ".env"
+        if env_file.exists():
+            for line in env_file.read_text().splitlines():
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    key, _, value = line.partition("=")
+                    os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+            break
+
+_load_dotenv()
+
+
 #Custom exception for LLM call errors
 class LLMError(RuntimeError):
     """Raised when an LLM request cannot be completed."""
