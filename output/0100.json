@@ -1,0 +1,230 @@
+{
+  "file name" : "0100.pdf",
+  "number of pages" : 1,
+  "author" : null,
+  "title" : null,
+  "creation date" : null,
+  "modification date" : null,
+  "kids" : [ {
+    "type" : "heading",
+    "pdfua_tag" : "H2",
+    "id" : 1,
+    "level" : "Subtitle",
+    "page number" : 1,
+    "bounding box" : [ 130.151, 652.242, 465.077, 688.839 ],
+    "heading level" : 2,
+    "font" : "NimbusRomNo9L-Medi",
+    "font size" : 14.346,
+    "text color" : "[0.0]",
+    "content" : "MORAN: A Multi-Object Rectiﬁed Attention Network for Scene Text Recognition"
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H1",
+    "id" : 25,
+    "level" : "Doctitle",
+    "page number" : 1,
+    "bounding box" : [ 14.04, 232.0, 36.36, 577.52 ],
+    "heading level" : 1,
+    "font" : "Times-Roman",
+    "font size" : 20.0,
+    "text color" : "[0.5]",
+    "content" : "arXiv:1901.03003v1[cs.CV]10Jan2019"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 2,
+    "page number" : 1,
+    "bounding box" : [ 82.271, 587.802, 516.716, 630.323 ],
+    "font" : "NimbusRomNo9L-Regu",
+    "font size" : 11.955,
+    "text color" : "[0.0]",
+    "content" : "Canjie Luo†, Lianwen Jin∗† ‡, Zenghui Sun† School of Electronic and Information Engineering, South China University of Technology† SCUT-Zhuhai Institute of Modern Industrial Innovation‡"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 3,
+    "page number" : 1,
+    "bounding box" : [ 92.382, 567.65, 506.924, 586.283 ],
+    "font" : "NimbusMonL-Regu",
+    "font size" : 9.963,
+    "text color" : "[0.0]",
+    "content" : "{canjie.luo, lianwen.jin∗ , sunfreding}@gmail.com, eelwjin@scut.edu.cn∗"
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H3",
+    "id" : 4,
+    "level" : "Subtitle",
+    "page number" : 1,
+    "bounding box" : [ 145.995, 528.628, 190.48, 544.182 ],
+    "heading level" : 3,
+    "font" : "NimbusRomNo9L-Medi",
+    "font size" : 11.955,
+    "text color" : "[0.0]",
+    "content" : "Abstract"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 5,
+    "page number" : 1,
+    "bounding box" : [ 50.112, 173.942, 286.362, 512.148 ],
+    "font" : "NimbusRomNo9L-ReguItal",
+    "font size" : 10.909,
+    "text color" : "[0.0]",
+    "content" : "Irregular text is widely used. However, it is considerably difﬁcult to recognize because of its various shapes and distorted patterns. In this paper, we thus propose a multi-object rectiﬁed attention network (MORAN) for general scene text recognition. The MORAN consists of a multi-object rectiﬁcation network and an attention-based sequence recognition network. The multi-object rectiﬁcation network is designed for rectifying images that contain irregular text. It decreases the difﬁculty of recognition and enables the attention-based sequence recognition network to more easily read irregular text. It is trained in a weak supervision way, thus requiring only images and corresponding text labels. The attentionbased sequence recognition network focuses on target characters and sequentially outputs the predictions. Moreover, to improve the sensitivity of the attentionbased sequence recognition network, a fractional pickup method is proposed for an attention-based decoder in the training phase. With the rectiﬁcation mechanism, the MORAN can read both regular and irregular scene text. Extensive experiments on various benchmarks are conducted, which show that the MORAN achieves state-of-the-art performance. The source code is available1."
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 6,
+    "page number" : 1,
+    "bounding box" : [ 50.112, 129.636, 286.359, 156.766 ],
+    "font" : "NimbusRomNo9L-Regu",
+    "font size" : 10.909,
+    "text color" : "[0.0]",
+    "content" : "Keywords: Scene text recognition, optical character recognition, deep learning."
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 8,
+    "page number" : 1,
+    "bounding box" : [ 61.934, 78.875, 271.187, 100.68 ],
+    "font" : "NimbusMonL-Regu",
+    "font size" : 8.966,
+    "text color" : "[0.0]",
+    "content" : "∗Corresponding author 1https://github.com/Canjie-Luo/MORAN_v2"
+  }, {
+    "type" : "image",
+    "pdfua_tag" : "Figure",
+    "id" : 16,
+    "page number" : 1,
+    "bounding box" : [ 469.89, 496.163, 540.76, 538.683 ],
+    "source" : "0100_images/imageFile1.png"
+  }, {
+    "type" : "image",
+    "pdfua_tag" : "Figure",
+    "id" : 13,
+    "page number" : 1,
+    "bounding box" : [ 392.918, 496.162, 463.783, 538.682 ],
+    "source" : "0100_images/imageFile2.png"
+  }, {
+    "type" : "image",
+    "pdfua_tag" : "Figure",
+    "id" : 9,
+    "page number" : 1,
+    "bounding box" : [ 315.944, 496.162, 386.808, 538.682 ],
+    "source" : "0100_images/imageFile3.png"
+  }, {
+    "type" : "image",
+    "pdfua_tag" : "Figure",
+    "id" : 10,
+    "page number" : 1,
+    "bounding box" : [ 315.945, 452.648, 386.807, 495.167 ],
+    "source" : "0100_images/imageFile4.png"
+  }, {
+    "type" : "image",
+    "pdfua_tag" : "Figure",
+    "id" : 17,
+    "page number" : 1,
+    "bounding box" : [ 469.889, 452.647, 540.76, 495.167 ],
+    "source" : "0100_images/imageFile5.png"
+  }, {
+    "type" : "image",
+    "pdfua_tag" : "Figure",
+    "id" : 14,
+    "page number" : 1,
+    "bounding box" : [ 392.918, 452.646, 463.783, 495.166 ],
+    "source" : "0100_images/imageFile6.png"
+  }, {
+    "type" : "image",
+    "pdfua_tag" : "Figure",
+    "id" : 11,
+    "page number" : 1,
+    "bounding box" : [ 315.945, 409.132, 386.808, 451.652 ],
+    "source" : "0100_images/imageFile7.png"
+  }, {
+    "type" : "image",
+    "pdfua_tag" : "Figure",
+    "id" : 18,
+    "page number" : 1,
+    "bounding box" : [ 469.89, 409.131, 540.759, 451.652 ],
+    "source" : "0100_images/imageFile8.png"
+  }, {
+    "type" : "image",
+    "pdfua_tag" : "Figure",
+    "id" : 15,
+    "page number" : 1,
+    "bounding box" : [ 392.918, 409.13, 463.783, 451.65 ],
+    "source" : "0100_images/imageFile9.png"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 12,
+    "page number" : 1,
+    "bounding box" : [ 343.236, 399.499, 507.138, 410.306 ],
+    "font" : "NimbusRomNo9L-Regu",
+    "font size" : 8.966,
+    "text color" : "[0.0]",
+    "content" : "(a) (b) (c)"
+  }, {
+    "type" : "caption",
+    "id" : 19,
+    "page number" : 1,
+    "bounding box" : [ 308.862, 360.946, 545.115, 396.861 ],
+    "linked content id" : 18,
+    "font" : "NimbusRomNo9L-Regu",
+    "font size" : 9.963,
+    "text color" : "[0.0]",
+    "content" : "Figure 1. Examples of regular and irregular scene text. (a) Regular text. (b) Slanted and perspective text. (c) Curved text."
+  }, {
+    "type" : "heading",
+    "pdfua_tag" : "H3",
+    "id" : 20,
+    "level" : "Subtitle",
+    "page number" : 1,
+    "bounding box" : [ 308.862, 328.315, 385.698, 343.869 ],
+    "heading level" : 3,
+    "font" : "NimbusRomNo9L-Medi",
+    "font size" : 11.955,
+    "text color" : "[0.0]",
+    "content" : "1. Introduction"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 21,
+    "page number" : 1,
+    "bounding box" : [ 308.862, 200.233, 545.109, 321.771 ],
+    "font" : "NimbusRomNo9L-Regu",
+    "font size" : 10.909,
+    "text color" : "[0.0]",
+    "content" : "Scene text recognition is an essential process in computer vision tasks. Many practical applications such as trafﬁc sign reading, product recognition, intelligent inspection, and image searching, beneﬁt from the rich semantic information of scene text. With the development of scene text detection methods [11, 26, 46, 56], scene character recognition has emerged at the forefront of this research topic and is regarded as an open and very challenging research problem [45]."
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 22,
+    "page number" : 1,
+    "bounding box" : [ 308.862, 105.211, 545.109, 199.651 ],
+    "font" : "NimbusRomNo9L-Regu",
+    "font size" : 10.909,
+    "text color" : "[0.0]",
+    "content" : "Nowadays, regular text recognition methods [3, 33, 41, 45, 50] have achieved notable success. Moreover, methods based on convolutional neural networks [3, 22, 50] have been broadly applied. Integrating recognition models with recurrent neural networks [17, 41, 42] and attention mechanisms [5, 6, 27, 51] yields better performance for these models."
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 23,
+    "page number" : 1,
+    "bounding box" : [ 308.862, 77.935, 545.109, 104.629 ],
+    "font" : "NimbusRomNo9L-Regu",
+    "font size" : 10.909,
+    "text color" : "[0.0]",
+    "content" : "Nevertheless, most current recognition models remain too unstable to handle multiple disturbances"
+  }, {
+    "type" : "paragraph",
+    "pdfua_tag" : "P",
+    "id" : 24,
+    "page number" : 1,
+    "bounding box" : [ 294.885, 48.047, 300.34, 61.192 ],
+    "font" : "NimbusRomNo9L-Regu",
+    "font size" : 10.909,
+    "text color" : "[0.0]",
+    "content" : "1"
+  } ]
+}
