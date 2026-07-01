@@ -143,7 +143,6 @@ def parse_pptx(path, registry) -> list:
 
 # --- .ppt parsing (CHANGED: place each image on its own unit) --------------- #
 def parse_ppt(path, registry) -> list:
-    """Place each image on the slide its loop iteration came from (no LLM placement)."""
     import sharepoint2text
     content = next(sharepoint2text.read_file(str(path)))
     slides = []
@@ -169,7 +168,8 @@ def parse_ppt(path, registry) -> list:
 
 
 # --- rendering (unchanged) -------------------------------------------------- #
-def render_xml(slides, by_id, filename, data_type, index=1) -> str:
+def render_xml(slides, by_id, filename, data_type, index=1, approx_images=False) -> str:
+    suffix = " (approximate slide)" if approx_images else ""   # .ppt placement is inferred
     slide_texts = []
     for slide in slides:
         parts = [f"Slide {slide.number}"]
@@ -178,7 +178,7 @@ def render_xml(slides, by_id, filename, data_type, index=1) -> str:
                 parts.append(value)
             else:
                 desc = by_id[value].description or "(no description)"
-                parts.append(f"[Image {value}]\n{desc}")
+                parts.append(f"[Image {value}{suffix}]\n{desc}")
         slide_texts.append("\n\n".join(parts))
     body = "\n\n".join(slide_texts)
     return (f'<documents>\n  <document index="{index}" filename="{xml_attr(filename)}"'
@@ -198,7 +198,8 @@ def pptx_converter(file_path, output_dir=None, *, model=DEFAULT_MODEL,
         llm.describe_images(images, model=model, max_workers=max_workers, prompt=prompt, client=client)
 
     by_id = {image.image_id: image for image in images}
-    xml = render_xml(slides, by_id, path.name, data_type or kind.upper())
+    xml = render_xml(slides, by_id, path.name, data_type or kind.upper(),
+                     approx_images=(kind == "ppt"))
     if output_dir is not None:
         out_path = Path(output_dir) / f"{path.stem}.xml"
         out_path.parent.mkdir(parents=True, exist_ok=True)
