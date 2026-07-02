@@ -1,29 +1,28 @@
-"""PDF -> placeholder-XML extractor built directly on PyMuPDF (no opendataloader).
+"""PDF -> semantic XML extractor built on PyMuPDF, using pptx/llm_ref.py for Azure OpenAI.
 
 WHAT IT DOES
-    Reads a PDF locally with PyMuPDF (fitz): pulls the text and the embedded images
-    per page, in reading order, then sends the images to an Azure OpenAI vision model
-    for description/transcription and emits a <documents> XML (text + <image> items).
+    Reads a PDF locally with PyMuPDF (fitz): pulls text and embedded images per page in
+    reading order, then describes/transcribes images with the shared Azure OpenAI client
+    from pptx/llm_ref.py, and emits a flat, semantically-tagged XML that's easy for an LLM
+    to read: <document> > <page number> > <text> / <figure id>.
 
 THREE THINGS IT HANDLES ON PURPOSE
-    1. Normal pages         -> text blocks + embedded figures, interleaved in reading order.
-    2. Scanned / vector /   -> the whole page is rendered to a PNG and transcribed (OCR-style),
-       blank pages             because there is no selectable text to pull.
+    1. Normal pages         -> <text> blocks + <figure> items, interleaved in reading order.
+    2. Scanned / vector /   -> the whole page is rendered to PNG and transcribed (OCR-style),
+       blank pages             its transcription becoming the page's <text>.
     3. Figures split across -> a picture whose top half sits at the bottom of page N and whose
-       a page break            bottom half sits at the top of page N+1 is detected by edge +
-                               horizontal-alignment heuristics, stitched back into one image,
-                               and described once.
+       a page break            bottom half sits at the top of page N+1 is stitched into one
+                               image (edge + alignment heuristics) and described once.
 
-The only network egress is the Azure describer. Everything else is local.
+LLM: all Azure access (client, image encoding, deployment/model, detail level, .env loading)
+comes from pptx/llm_ref.py, so PDF and PPTX share one gateway and one place to configure Azure.
 See PDF_EXTRACTOR.md for the full walkthrough.
 """
 
 import argparse
-import base64
 import hashlib
 import io
 import logging
-import os
 import sys
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
@@ -33,12 +32,15 @@ from pathlib import Path
 
 import fitz  # PyMuPDF
 
+# Reuse the shared Azure OpenAI layer that lives in the sibling pptx/ package.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "pptx"))
+import llm_ref  # noqa: E402  provides get_azure_openai_client, encode_image_to_data_url, etc.
+
 logger = logging.getLogger(__name__)
 
 # --- config ----------------------------------------------------------------- #
 DEFAULT_DATA_TYPE = "PDF"
 DEFAULT_MAX_WORKERS = 8              # concurrent Azure describe/transcribe requests
-IMAGE_DETAIL = "high"               # vision detail level
 PAGE_RENDER_DPI = 200               # DPI for rendering whole (scanned/vector) pages
 
 MIN_FIGURE_DIM = 64                 # px: drop embedded images smaller than this (icons/rules)
@@ -52,7 +54,7 @@ FIGURE_PROMPT = (
     "describe its content as plain text: title, axis labels and ranges, legend/series, and "
     "the data, trends, or relationships it conveys. If it is a logo, icon, or purely "
     "decorative graphic with no information, reply with exactly: (decorative, no data). Do "
-    "not invent anything not visible, and return XML-safe text with no markdown or code fence."
+    "not invent anything not visible, and reply in plain prose (no JSON, markdown, or code fence)."
 )
 
 PAGE_PROMPT = (
@@ -60,81 +62,41 @@ PAGE_PROMPT = (
     "it appears, preserving reading order and structure: keep headings, paragraphs, and lists, "
     "and render any table as rows of cells separated by ' | '. For any chart or figure, add a "
     "short plain-text note of what it shows (title, axes, series, trend). If the page is blank, "
-    "reply with exactly: (blank page). Return XML-safe text only, with no markdown or code fence."
+    "reply with exactly: (blank page). Reply in plain prose (no JSON, markdown, or code fence)."
 )
 
 
-# --- Azure OpenAI layer (mirrors pptx/llm_ref.py) --------------------------- #
-# Functionality: Load KEY=value lines from the nearest .env into os.environ (once, at import).
-# Return: None.
-# Used by: module import, so get_required_env() finds AZURE_OPENAI_* during local runs.
-def _load_dotenv() -> None:
-    for directory in (Path.cwd(), *Path(__file__).resolve().parents):
-        env_file = directory / ".env"
-        if env_file.exists():
-            for line in env_file.read_text().splitlines():
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    key, _, value = line.partition("=")
-                    os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
-            break
-
-_load_dotenv()
-
-
-# Custom exception for LLM call errors
-class LLMError(RuntimeError):
-    """Raised when a required setting is missing or an Azure call cannot be completed."""
-
-# Functionality: Read a required environment variable and validate that it exists.
-# Return: The environment variable value as a string.
-# Used by: get_azure_openai_client() and the describer functions (for the deployment name).
-def get_required_env(name: str) -> str:
-    value = os.getenv(name)
-    if not value:
-        raise LLMError(f"Missing required environment variable: {name}")
-    return value
-
-# Functionality: Build (and cache) an authenticated Azure OpenAI client from env settings.
-# Return: A configured AzureOpenAI client, reused across all images in a run.
-# Used by: describe_figure() and transcribe_page().
+# --- LLM calls (routed through pptx/llm_ref.py) ----------------------------- #
+# Functionality: Build (and cache) the shared Azure OpenAI client from llm_ref.
+# Return: an AzureOpenAI client, reused across all images in a run.
+# Used by: _describe().
 @lru_cache(maxsize=1)
-def get_azure_openai_client():
-    from openai import AzureOpenAI
-    return AzureOpenAI(
-        azure_endpoint=get_required_env("AZURE_OPENAI_ENDPOINT"),
-        api_key=get_required_env("AZURE_OPENAI_API_KEY"),
-        api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-10-21"),
-    )
+def _client():
+    return llm_ref.get_azure_openai_client()
 
-# Functionality: Encode raw image bytes as a base64 data URL for vision input.
-# Return: A "data:image/...;base64,..." string.
-# Used by: describe_figure() and transcribe_page().
-def encode_image_to_data_url(blob: bytes, ext: str) -> str:
-    mime = "jpeg" if ext in ("jpg", "jpeg") else (ext if ext in ("png", "gif", "webp") else "png")
-    return f"data:image/{mime};base64,{base64.b64encode(blob).decode('ascii')}"
-
-# Functionality: Send one image + a prompt to the Azure vision model and return its reply.
-# Return: The model's text reply, stripped.
+# Functionality: Send one image + a prompt to the Azure vision model (via llm_ref's client,
+#                encoder, deployment and detail level) and return its plain-text reply.
+# Return: the model's text reply, stripped.
 # Used by: describe_figure() and transcribe_page() (they only differ by prompt).
 def _describe(blob: bytes, ext: str, prompt: str) -> str:
-    response = get_azure_openai_client().chat.completions.create(
-        model=get_required_env("AZURE_OPENAI_DEPLOYMENT"),
+    response = _client().chat.completions.create(
+        model=llm_ref.DEFAULT_MODEL,
         messages=[{"role": "user", "content": [
             {"type": "text", "text": prompt},
-            {"type": "image_url",
-             "image_url": {"url": encode_image_to_data_url(blob, ext), "detail": IMAGE_DETAIL}},
+            {"type": "image_url", "image_url": {
+                "url": llm_ref.encode_image_to_data_url(blob, ext),
+                "detail": llm_ref.IMAGE_DETAIL}},
         ]}])
     return (response.choices[0].message.content or "").strip()
 
 # Functionality: Concise description of an embedded figure (chart/table/diagram).
-# Return: A short plain-text description.
+# Return: a short plain-text description.
 # Used by: describe_images() for images classified as "figure".
 def describe_figure(blob: bytes, ext: str) -> str:
     return _describe(blob, ext, FIGURE_PROMPT)
 
 # Functionality: Full-page transcription of a rendered scanned/vector page.
-# Return: The page's transcribed text + figure notes.
+# Return: the page's transcribed text + figure notes.
 # Used by: describe_images() for images classified as "page".
 def transcribe_page(blob: bytes, ext: str) -> str:
     return _describe(blob, ext, PAGE_PROMPT)
@@ -177,8 +139,8 @@ class ImageRegistry:
 
 
 # --- PyMuPDF extraction ----------------------------------------------------- #
-# Functionality: Join the text of a "dict" text block into one string (lines preserved).
-# Return: The block's text, or "".
+# Functionality: Join a "dict" text block's spans/lines into one string (lines preserved).
+# Return: the block's text, or "".
 # Used by: _extract_page().
 def _block_text(block: dict) -> str:
     lines = []
@@ -347,58 +309,76 @@ def describe_images(registry: ImageRegistry, figure_describer, page_describer, m
         pool.map(run, images)
 
 
+# Functionality: Escape the five XML-special characters for an attribute value.
 def xml_attr(value) -> str:
     return (str(value).replace("&", "&amp;").replace('"', "&quot;")
             .replace("<", "&lt;").replace(">", "&gt;"))
 
 
-# Functionality: Emit one embedded figure's XML element.
-# Return: an <image> element string.
-# Used by: render_xml().
-def render_image_item(ref: ImageRef) -> str:
-    return (f'<image id="{ref.image_id}" sha256="{ref.sha256}" size_bytes="{ref.size_bytes}">'
-            f'{ref.description or "(no description)"}</image>')
+# Functionality: Escape XML-special characters for element text content (& < >).
+def xml_text(value) -> str:
+    return str(value).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-# Functionality: Render all pages into the final <documents> XML.
+# Functionality: Render all pages into flat, semantically-tagged XML for LLM consumption.
 # Return: the XML string.
 # Used by: pdf_converter().
-def render_xml(pages: list, by_id: dict, filename: str, data_type: str, index: int = 1) -> str:
-    page_texts = []
+#
+# Layout (clear tags, shallow nesting):
+#   <document filename="..." type="PDF">
+#     <page number="1">
+#       <text>...</text>
+#       <figure id="1">description</figure>
+#     </page>
+#   </document>
+# A whole-page (scanned/rendered) transcription is emitted as that page's <text>; an embedded
+# figure is a <figure id> element. Consecutive text blocks are merged into one <text>.
+def render_xml(pages: list, by_id: dict, filename: str, data_type: str) -> str:
+    lines = [f'<document filename="{xml_attr(filename)}" type="{xml_attr(data_type)}">']
     for page in pages:
-        parts = [f"Page {page.number}"]
+        lines.append(f'  <page number="{page.number}">')
+        text_buf = []
+
+        def flush_text():
+            if text_buf:
+                lines.append(f"    <text>{xml_text(chr(10).join(text_buf))}</text>")
+                text_buf.clear()
+
         for kind, value in page.blocks:
             if kind == "text":
-                parts.append(value)
+                text_buf.append(value)
             else:
                 ref = by_id[value]
-                # A whole-page transcription IS the page body; a figure is an <image> item.
-                parts.append(ref.description or "(no description)" if ref.kind == "page"
-                             else render_image_item(ref))
-        page_texts.append("\n\n".join(parts))
-    body = "\n\n".join(page_texts)
-    return (f'<documents>\n  <document index="{index}" filename="{xml_attr(filename)}"'
-            f' data-type="{xml_attr(data_type)}">\n{body}\n  </document>\n</documents>\n')
+                if ref.kind == "page":                          # transcription is the page body
+                    text_buf.append(ref.description or "(no description)")
+                else:                                           # embedded figure
+                    flush_text()
+                    desc = xml_text(ref.description or "(no description)")
+                    lines.append(f'    <figure id="{ref.image_id}">{desc}</figure>')
+        flush_text()
+        lines.append("  </page>")
+    lines.append("</document>")
+    return "\n".join(lines) + "\n"
 
 
 # --- public entry point ----------------------------------------------------- #
 def pdf_converter(file_path, output_dir=None, *, data_type: str = DEFAULT_DATA_TYPE,
                   max_workers: int = DEFAULT_MAX_WORKERS, fallback: bool = True,
                   figure_describer=describe_figure, page_describer=transcribe_page) -> str:
-    """Convert a .pdf to placeholder XML using PyMuPDF + an Azure describer.
+    """Convert a .pdf to flat semantic XML using PyMuPDF + the llm_ref Azure describer.
 
     Args:
         file_path: path to a .pdf.
         output_dir: if given, also write the XML to ``<output_dir>/<stem>.xml``.
-        data_type: value for the document's ``data-type`` attribute.
+        data_type: value for the document's ``type`` attribute.
         max_workers: max concurrent Azure requests.
         fallback: also render+transcribe empty/vector-only pages (scanned pages are always
             transcribed regardless).
         figure_describer / page_describer: callables(blob, ext) -> str. Default to the Azure
-            describers above; swap for stubs in tests or a local model.
+            describers above (which call llm_ref); swap for stubs in tests or a local model.
 
     Returns:
-        The rendered <documents> XML string.
+        The rendered XML string.
     """
     pdf_path = Path(file_path)
     if not pdf_path.exists():
@@ -422,8 +402,8 @@ def pdf_converter(file_path, output_dir=None, *, data_type: str = DEFAULT_DATA_T
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Convert a .pdf to placeholder XML "
-                                                 "(PyMuPDF + Azure describer).")
+    parser = argparse.ArgumentParser(description="Convert a .pdf to semantic XML "
+                                                 "(PyMuPDF + Azure describer from llm_ref).")
     parser.add_argument("file", type=Path, help=".pdf file")
     parser.add_argument("-o", "--out", type=Path, default="output", help="output directory")
     parser.add_argument("--data-type", default=DEFAULT_DATA_TYPE)
