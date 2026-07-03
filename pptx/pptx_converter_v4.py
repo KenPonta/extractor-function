@@ -1,10 +1,28 @@
-"""pptx_converter_v4.py — .ppt parsed with Spire ONLY (no sharepoint2text).
+""".ppt / .pptx -> semantic XML extractor, sharing pptx/llm_ref.py for Azure OpenAI.
 
-Spire supplies text, images (exact placement) AND tables for .ppt, walking the shape tree
-in reading order just like the .pptx path. Uses the same llm_ref for descriptions.
+WHAT IT DOES
+    Reads a PowerPoint locally and pulls text + images (in reading order) per slide, then
+    describes each image with the shared Azure OpenAI client from llm_ref.py, and emits a
+    flat, semantically-tagged XML that's easy for an LLM to read:
+    <document> > <slide number> > <text> / <figure id>. The layout mirrors pdf_extractor.py
+    so both feed the same downstream reader.
 
-Client via --provider: 'openai' (dev box, gpt-4.1) or 'azure' (real device, deployment name).
-Default is azure so a production pull runs unchanged.
+TWO PARSE PATHS (same output shape)
+    1. .pptx -> python-pptx: walks the shape tree exactly, pulling text frames, picture
+                blobs, picture-fill images, and tables, recursing into groups.
+    2. .ppt  -> Spire.Presentation ONLY: same walk (text + images + tables) over Spire's
+                shape tree. Spire runs unlicensed in evaluation mode, which never caps slide
+                count or watermarks read-only extraction (only save/convert is restricted).
+
+IMAGE FILTERING
+    Vector images (non-raster MIME) and tiny images (min dimension < MIN_IMAGE_DIM) are
+    skipped so icons/rules/decorations don't flood the describer. Identical images are
+    de-duplicated by content hash so each is described only once.
+
+LLM: all Azure access (client, image encoding, deployment/model, detail level, .env loading)
+comes from llm_ref.py, so PPTX and PDF share one gateway and one place to configure Azure.
+Client via --provider: 'openai' (dev box, gpt-4.1) or 'azure' (real device, deployment name);
+default is azure so a production pull runs unchanged.
 """
 import argparse
 import hashlib
@@ -18,14 +36,20 @@ from llm_ref import DEFAULT_MAX_WORKERS, DEFAULT_MODEL, IMAGE_PROMPT
 
 logger = logging.getLogger(__name__)
 
-MSO_FILL_PICTURE = 6
-RASTER_MIME_EXT = {
+# --- config ----------------------------------------------------------------- #
+MSO_FILL_PICTURE = 6                # python-pptx fill type id for a picture fill
+RASTER_MIME_EXT = {                 # MIME -> extension; anything not here is treated as vector
     "image/png": "png", "image/jpeg": "jpg", "image/jpg": "jpg",
     "image/gif": "gif", "image/webp": "webp", "image/bmp": "bmp",
 }
-MIN_IMAGE_DIM = 150
+MIN_IMAGE_DIM = 150                 # px: drop images whose smaller side is under this (icons/rules)
 
 
+# --- data model ------------------------------------------------------------- #
+# Functionality: Content hash for an image, normalized so re-encodings of the same picture
+#                collide. Decodes to RGB PNG and hashes that; falls back to hashing raw bytes.
+# Return: a hex digest string used as the de-dup key.
+# Used by: ImageRegistry.register().
 def content_digest(blob: bytes) -> str:
     try:
         from io import BytesIO
@@ -54,6 +78,7 @@ class Slide:
 
 @dataclass
 class ImageRegistry:
+    """De-duplicates images by content digest so an identical picture is described only once."""
     by_digest: dict = field(default_factory=dict)
 
     def register(self, blob: bytes, ext: str) -> int:
@@ -68,6 +93,10 @@ class ImageRegistry:
         return list(self.by_digest.values())
 
 
+# --- helpers ---------------------------------------------------------------- #
+# Functionality: Check the path exists and has a supported extension, and classify it.
+# Return: (Path, "ppt" | "pptx"); raises FileNotFoundError / ValueError otherwise.
+# Used by: pptx_converter().
 def validate_file(file_path) -> tuple[Path, str]:
     path = Path(file_path)
     if not path.exists():
@@ -78,20 +107,28 @@ def validate_file(file_path) -> tuple[Path, str]:
     return path, kind
 
 
+# Functionality: Map a raster image MIME type to a file extension.
+# Return: the extension, or None when the MIME isn't a known raster type (i.e. vector).
+# Used by: _spire_blocks() to tell raster images from vector ones.
 def ext_from_mime(content_type: str) -> str | None:
     return RASTER_MIME_EXT.get((content_type or "").strip().lower())
 
 
+# Functionality: Escape the five XML-special characters for an attribute value.
 def xml_attr(value) -> str:
     return (str(value).replace("&", "&amp;").replace('"', "&quot;")
             .replace("<", "&lt;").replace(">", "&gt;"))
 
 
+# Functionality: Escape XML-special characters for element text content (& < >).
 def xml_text(value) -> str:
     return str(value).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 # --- metadata --------------------------------------------------------------- #
+# Functionality: Format a Spire DateTime as YYYY-MM-DD.
+# Return: the date string, or "" if the value is missing/unreadable.
+# Used by: _ppt_metadata().
 def _spire_dt(dt) -> str:
     try:
         return f"{dt.Year:04d}-{dt.Month:02d}-{dt.Day:02d}"
@@ -99,6 +136,9 @@ def _spire_dt(dt) -> str:
         return ""
 
 
+# Functionality: Pull a .pptx's core document properties (title, author, dates, …) via python-pptx.
+# Return: a dict of metadata fields (empty values are dropped at render time).
+# Used by: parse_pptx().
 def _pptx_metadata(prs) -> dict:
     cp = prs.core_properties
     return {"title": cp.title or "", "author": cp.author or "", "subject": cp.subject or "",
@@ -108,6 +148,9 @@ def _pptx_metadata(prs) -> dict:
             "revision": str(cp.revision) if cp.revision else ""}
 
 
+# Functionality: Pull a .ppt's document properties (title, author, dates, …) via Spire.
+# Return: a dict of metadata fields (empty values are dropped at render time).
+# Used by: parse_ppt().
 def _ppt_metadata(prs) -> dict:
     dp = prs.DocumentProperty
     return {"title": dp.Title or "", "author": dp.Author or "", "subject": dp.Subject or "",
@@ -116,13 +159,17 @@ def _ppt_metadata(prs) -> dict:
             "revision": str(dp.RevisionNumber) if dp.RevisionNumber else ""}
 
 
+# Functionality: Generated document id for the filename attr (NOT the real name).
+# Return: '<type>_<index>_<hash>.txt'; the real name is kept in metadata as <source_file>.
+# Used by: pptx_converter().
 def doc_name(data_type, index, file_path) -> str:
-    """Generated document id for the filename attr (NOT the real name): '<type>_<index>_<hash>.txt'.
-    The real name is kept in metadata as <source_file>."""
     digest = hashlib.sha256(Path(file_path).read_bytes()).hexdigest()[:24]
     return f"{data_type.lower()}_{index}_{digest}.txt"
 
 
+# Functionality: Log a one-line parse summary (slide/image/placement counts + skips).
+# Return: None (emits an INFO log line).
+# Used by: parse_pptx() and parse_ppt().
 def log_parse(kind, slides, registry, skipped_vector=0, skipped_small=0):
     placements = sum(k == "image" for s in slides for k, _ in s.blocks)
     logger.info("%s: %d slides, %d images, %d placements, %d vector + %d small skipped",
@@ -130,12 +177,19 @@ def log_parse(kind, slides, registry, skipped_vector=0, skipped_small=0):
 
 
 # --- .pptx parsing (python-pptx, exact) ------------------------------------- #
+# Functionality: Reading-order sort key for a python-pptx shape (top-to-bottom, left-to-right).
+# Return: (top, left) in EMU, defaulting missing coords to 0.
+# Used by: iter_pptx_blocks().
 def shape_sort_key(shape) -> tuple[int, int]:
     top = shape.top if isinstance(shape.top, int) else 0
     left = shape.left if isinstance(shape.left, int) else 0
     return top, left
 
 
+# Functionality: Extract a picture's bytes from a shape — either a real PICTURE shape or a
+#                shape whose fill is a picture fill (dig the blip out of its XML).
+# Return: (blob, ext) for a picture, else None.
+# Used by: iter_pptx_blocks().
 def image_from_shape(shape) -> tuple[bytes, str] | None:
     from pptx.enum.shapes import MSO_SHAPE_TYPE
     from pptx.oxml.ns import qn
@@ -152,6 +206,10 @@ def image_from_shape(shape) -> tuple[bytes, str] | None:
     return None
 
 
+# Functionality: Walk a .pptx slide's shapes in reading order, yielding text/image blocks and
+#                recursing into groups; pulls text frames, pictures, picture-fills, and tables.
+# Return: a generator of ("text", str) | ("image", image_id) blocks.
+# Used by: parse_pptx().
 def iter_pptx_blocks(shapes, registry):
     from pptx.enum.shapes import MSO_SHAPE_TYPE
     for shape in sorted(shapes, key=shape_sort_key):
@@ -171,6 +229,9 @@ def iter_pptx_blocks(shapes, registry):
                 yield "text", "\n".join(rows)
 
 
+# Functionality: Parse a whole .pptx into Slides of text/image blocks, registering every image.
+# Return: (list[Slide], metadata dict).
+# Used by: pptx_converter() for .pptx input.
 def parse_pptx(path, registry) -> tuple:
     from pptx import Presentation
     prs = Presentation(str(path))
@@ -181,8 +242,10 @@ def parse_pptx(path, registry) -> tuple:
 
 
 # --- .ppt parsing (Spire ONLY: text + images + tables) ---------------------- #
+# Functionality: Reading-order sort key for a Spire shape (top-to-bottom, then left-to-right).
+# Return: (top, left) as floats, defaulting missing coords to 0.0.
+# Used by: _spire_blocks().
 def _spire_sort_key(shape) -> tuple[float, float]:
-    """Reading order: top-to-bottom, then left-to-right (guard missing coords)."""
     try: top = float(shape.Top)
     except Exception: top = 0.0
     try: left = float(shape.Left)
@@ -190,8 +253,11 @@ def _spire_sort_key(shape) -> tuple[float, float]:
     return top, left
 
 
+# Functionality: Extract a picture from a Spire shape — either a SlidePicture or a shape whose
+#                fill is a picture fill — and pull its embedded image bytes + dimensions.
+# Return: (blob, content_type, width, height) for a picture, else None.
+# Used by: _spire_blocks().
 def _spire_image(shape):
-    """Return (blob, content_type, width, height) for a Spire picture shape, else None."""
     from spire.presentation import FillFormatType
     is_pic = type(shape).__name__ == "SlidePicture"
     if not is_pic:
@@ -213,16 +279,21 @@ def _spire_image(shape):
         return None
 
 
+# Functionality: Text of a Spire autoshape's text frame.
+# Return: the stripped text, or "" if the shape has none.
+# Used by: _spire_blocks().
 def _spire_text(shape) -> str:
-    """Text of an autoshape's text frame, or '' if none."""
     try:
         return (shape.TextFrame.Text or "").strip()
     except Exception:
         return ""
 
 
+# Functionality: Flatten a Spire table to 'a | b | c' rows (best effort; untested — no tables
+#                in the sample deck).
+# Return: list of row strings (empty rows dropped).
+# Used by: _spire_blocks().
 def _spire_table_rows(table) -> list:
-    """Flatten a Spire table to 'a | b | c' rows (best effort; untested — no tables in sample)."""
     rows = []
     try:
         for r in range(table.TableRows.Count):
@@ -238,6 +309,11 @@ def _spire_table_rows(table) -> list:
     return rows
 
 
+# Functionality: Walk a .ppt slide's Spire shapes in reading order, yielding text/image blocks
+#                and recursing into groups. Skips vector images (non-raster MIME) and images
+#                smaller than MIN_IMAGE_DIM, tallying both in `stats`.
+# Return: a generator of ("text", str) | ("image", image_id) blocks.
+# Used by: parse_ppt().
 def _spire_blocks(shapes, registry, stats):
     ordered = sorted((shapes[j] for j in range(shapes.Count)), key=_spire_sort_key)
     for shape in ordered:
@@ -269,6 +345,10 @@ def _spire_blocks(shapes, registry, stats):
             yield "text", text
 
 
+# Functionality: Parse a whole .ppt into Slides of text/image blocks via Spire, registering
+#                every kept image and disposing the Spire handle when done.
+# Return: (list[Slide], metadata dict).
+# Used by: pptx_converter() for .ppt input.
 def parse_ppt(path, registry) -> tuple:
     from spire.presentation import Presentation
     prs = Presentation()
@@ -283,8 +363,13 @@ def parse_ppt(path, registry) -> tuple:
 
 
 # --- rendering (semantic XML: <text> = native, <figure> = image-derived) ---- #
-# Layout mirrors pdf_extractor so an LLM can tell native text from image content:
-#   <document filename="..." type="PPT">
+# Functionality: Render all slides into flat, semantically-tagged XML for LLM consumption.
+#                Consecutive text blocks are merged into one <text>; each image is a <figure id>.
+# Return: the XML string.
+# Used by: pptx_converter().
+#
+# Layout (mirrors pdf_extractor so an LLM can tell native text from image content):
+#   <document filename="..." data-type="PPT">
 #     <metadata><title>...</title>...</metadata>
 #     <slide number="1">
 #       <text>...</text>
@@ -325,7 +410,11 @@ def render_xml(slides, by_id, filename, data_type, metadata=None, index=1) -> st
     return "\n".join(lines) + "\n"
 
 
-# --- entry point ------------------------------------------------------------ #
+# --- public entry point ----------------------------------------------------- #
+# Functionality: Convert a .ppt/.pptx to flat semantic XML — parse (python-pptx or Spire),
+#                describe unique images via llm_ref's Azure client, render XML, optionally write it.
+# Return: the rendered XML string.
+# Used by: main() / external callers.
 def pptx_converter(file_path, output_dir=None, *, model=DEFAULT_MODEL,
                    max_workers=DEFAULT_MAX_WORKERS, prompt=IMAGE_PROMPT,
                    data_type=None, client=None, describe=True) -> str:
