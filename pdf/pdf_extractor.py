@@ -6,11 +6,14 @@ WHAT IT DOES
     from pptx/llm_ref.py, and emits a flat, semantically-tagged XML that's easy for an LLM
     to read: <document> > <page number> > <text> / <figure id>.
 
-THREE THINGS IT HANDLES ON PURPOSE
+FOUR THINGS IT HANDLES ON PURPOSE
     1. Normal pages         -> <text> blocks + <figure> items, interleaved in reading order.
-    2. Scanned / vector /   -> the whole page is rendered to PNG and transcribed (OCR-style),
-       blank pages             its transcription becoming the page's <text>.
-    3. Figures split across -> a picture whose top half sits at the bottom of page N and whose
+    2. Scanned / blank      -> the whole page is rendered to PNG and transcribed (OCR-style),
+       pages                   its transcription becoming the page's <text>.
+    3. Vector-diagram pages -> a flowchart/diagram drawn as vector paths (invisible to text/image
+       (e.g. flowcharts)       extraction) is rendered whole and described as a <figure>, so its
+                               labels aren't leaked as loose text.
+    4. Figures split across -> a picture whose top half sits at the bottom of page N and whose
        a page break            bottom half sits at the top of page N+1 is stitched into one
                                image (edge + alignment heuristics) and described once.
 
@@ -48,6 +51,14 @@ SCANNED_TEXT_MAX_CHARS = 20         # <= this much selectable text => page is li
 SCANNED_IMAGE_COVER = 0.60          # image area >= 60% of the page => page is likely a scan
 EDGE_TOL_FRAC = 0.06                # within 6% of a page edge counts as "touching" that edge
 X_ALIGN_TOL_FRAC = 0.05             # split halves must line up horizontally within 5% of width
+
+# A flowchart/diagram drawn as VECTOR paths (not a raster image) is invisible to text/image
+# extraction, so its box labels leak out as loose text instead of being sent to the LLM as a
+# picture. Detect a vector-heavy, text-light page (with no raster image) and render it whole so
+# the LLM describes it like a figure. Thresholds are heuristic — tune on your real PDFs.
+VECTOR_MIN_PATHS = 8                # >= this many vector paths hints at a diagram, not a stray rule
+VECTOR_COVER = 0.20                 # vector bounding box must span >= 20% of the page
+VECTOR_MAX_TEXT = 400               # ...and there must be little text (labels, not a text page/table)
 
 FIGURE_PROMPT = (
     "This image was taken from a PDF. If it is a chart, graph, table, diagram, or figure, "
@@ -152,8 +163,8 @@ def _block_text(block: dict) -> str:
 
 
 # Functionality: Pull one page's text blocks and image blocks, and classify the page.
-# Return: (text_blocks, image_blocks, is_scanned, is_empty, (page_w, page_h)) where
-#         text_blocks = [(y0, x0, text)], image_blocks = [{bbox, blob, ext, w, h}].
+# Return: (text_blocks, image_blocks, is_scanned, is_empty, is_vector_diagram, (page_w, page_h))
+#         where text_blocks = [(y0, x0, text)], image_blocks = [{bbox, blob, ext, w, h}].
 # Used by: build_pages().
 def _extract_page(page) -> tuple:
     data = page.get_text("dict")
@@ -175,7 +186,21 @@ def _extract_page(page) -> tuple:
     page_area = (pw * ph) or 1.0
     is_scanned = text_len <= SCANNED_TEXT_MAX_CHARS and (image_area / page_area) >= SCANNED_IMAGE_COVER
     is_empty = text_len == 0 and not image_blocks
-    return text_blocks, image_blocks, is_scanned, is_empty, (pw, ph)
+
+    # Vector graphics (the flowchart/diagram channel) are ignored by text/image extraction, so a
+    # vector diagram's labels would leak out as loose text. Flag a vector-heavy, text-light page
+    # (with no raster image) so build_pages renders it whole and the LLM describes it as a figure.
+    drawings = page.get_drawings()
+    union = None
+    for d in drawings:
+        r = fitz.Rect(d["rect"])
+        union = r if union is None else (union | r)
+    draw_cover = (abs(union) / page_area) if union else 0.0     # abs(Rect) == its area
+    is_vector_diagram = (not image_blocks and not is_scanned
+                         and len(drawings) >= VECTOR_MIN_PATHS
+                         and draw_cover >= VECTOR_COVER
+                         and text_len < VECTOR_MAX_TEXT)
+    return text_blocks, image_blocks, is_scanned, is_empty, is_vector_diagram, (pw, ph)
 
 
 # Functionality: Render a whole page to PNG bytes (for scanned/vector/empty pages).
@@ -238,9 +263,9 @@ def build_pages(doc, registry: ImageRegistry, *, fallback: bool = True) -> list:
     # 1) Extract raw content and classify each page.
     per_page = {}
     for i in range(n_pages):
-        tb, ib, scanned, empty, size = _extract_page(doc[i])
+        tb, ib, scanned, empty, vector, size = _extract_page(doc[i])
         per_page[i + 1] = {"text": tb, "images": ib, "scanned": scanned,
-                           "empty": empty, "size": size}
+                           "empty": empty, "vector": vector, "size": size}
 
     # 2) Detect + stitch figures split across page breaks (only among non-scanned pages).
     page_images = {n: pp["images"] for n, pp in per_page.items() if not pp["scanned"]}
@@ -260,9 +285,15 @@ def build_pages(doc, registry: ImageRegistry, *, fallback: bool = True) -> list:
     for n in range(1, n_pages + 1):
         pp = per_page[n]
         blocks = []
-        if pp["scanned"] or (pp["empty"] and fallback):         # whole page -> transcribe
+        if pp["scanned"] or (pp["empty"] and fallback):         # whole page -> transcribe (OCR)
             png = render_page_png(doc[n - 1])
             blocks.append(("image", registry.register(png, "png", "page")))
+            pages.append(Page(n, blocks))
+            continue
+        if pp["vector"]:                                        # vector diagram -> render + describe
+            png = render_page_png(doc[n - 1])
+            blocks.append(("image", registry.register(png, "png", "figure")))
+            logger.info("rendered vector-diagram page %d as a figure", n)
             pages.append(Page(n, blocks))
             continue
 
