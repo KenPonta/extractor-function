@@ -320,6 +320,23 @@ def xml_text(value) -> str:
     return str(value).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+# Functionality: Pull the PDF's document metadata (title, author, dates, …) for the <metadata> block.
+# Return: a dict of metadata fields (empty values are dropped at render time).
+def _pdf_metadata(doc) -> dict:
+    m = doc.metadata or {}
+    return {"title": m.get("title") or "", "author": m.get("author") or "",
+            "subject": m.get("subject") or "", "keywords": m.get("keywords") or "",
+            "creator": m.get("creator") or "", "producer": m.get("producer") or "",
+            "created": m.get("creationDate") or "", "modified": m.get("modDate") or ""}
+
+
+# Functionality: Generated document id for the filename attr (NOT the real name).
+# Return: '<type>_<index>_<hash>.txt'; the real name is kept in metadata as <source_file>.
+def doc_name(data_type, index, file_path) -> str:
+    digest = hashlib.sha256(Path(file_path).read_bytes()).hexdigest()[:24]
+    return f"{data_type.lower()}_{index}_{digest}.txt"
+
+
 # Functionality: Render all pages into flat, semantically-tagged XML for LLM consumption.
 # Return: the XML string.
 # Used by: pdf_converter().
@@ -333,8 +350,16 @@ def xml_text(value) -> str:
 #   </document>
 # A whole-page (scanned/rendered) transcription is emitted as that page's <text>; an embedded
 # figure is a <figure id> element. Consecutive text blocks are merged into one <text>.
-def render_xml(pages: list, by_id: dict, filename: str, data_type: str) -> str:
-    lines = [f'<document filename="{xml_attr(filename)}" type="{xml_attr(data_type)}">']
+def render_xml(pages: list, by_id: dict, filename: str, data_type: str,
+               metadata: dict = None, index: int = 1) -> str:
+    lines = [f'<document index="{index}" filename="{xml_attr(filename)}"'
+             f' data-type="{xml_attr(data_type)}">']
+    if metadata:
+        lines.append("  <metadata>")
+        for key, value in metadata.items():
+            if value:
+                lines.append(f"    <{key}>{xml_text(value)}</{key}>")
+        lines.append("  </metadata>")
     for page in pages:
         lines.append(f'  <page number="{page.number}">')
         text_buf = []
@@ -391,7 +416,9 @@ def pdf_converter(file_path, output_dir=None, *, data_type: str = DEFAULT_DATA_T
         pages = build_pages(doc, registry, fallback=fallback)
         describe_images(registry, figure_describer, page_describer, max_workers)
         by_id = {ref.image_id: ref for ref in registry.images}
-        xml = render_xml(pages, by_id, pdf_path.name, data_type=data_type)
+        metadata = {"source_file": pdf_path.name, "pages": str(doc.page_count), **_pdf_metadata(doc)}
+        xml = render_xml(pages, by_id, doc_name(data_type, 1, pdf_path), data_type,
+                         metadata=metadata, index=1)
 
     if output_dir is not None:
         out_path = Path(output_dir) / f"{pdf_path.stem}.xml"

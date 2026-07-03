@@ -87,6 +87,42 @@ def xml_attr(value) -> str:
             .replace("<", "&lt;").replace(">", "&gt;"))
 
 
+def xml_text(value) -> str:
+    return str(value).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+# --- metadata --------------------------------------------------------------- #
+def _spire_dt(dt) -> str:
+    try:
+        return f"{dt.Year:04d}-{dt.Month:02d}-{dt.Day:02d}"
+    except Exception:
+        return ""
+
+
+def _pptx_metadata(prs) -> dict:
+    cp = prs.core_properties
+    return {"title": cp.title or "", "author": cp.author or "", "subject": cp.subject or "",
+            "keywords": cp.keywords or "", "last_modified_by": cp.last_modified_by or "",
+            "created": cp.created.isoformat() if cp.created else "",
+            "modified": cp.modified.isoformat() if cp.modified else "",
+            "revision": str(cp.revision) if cp.revision else ""}
+
+
+def _ppt_metadata(prs) -> dict:
+    dp = prs.DocumentProperty
+    return {"title": dp.Title or "", "author": dp.Author or "", "subject": dp.Subject or "",
+            "keywords": dp.Keywords or "", "last_modified_by": dp.LastSavedBy or "",
+            "created": _spire_dt(dp.CreatedTime), "modified": _spire_dt(dp.LastSavedTime),
+            "revision": str(dp.RevisionNumber) if dp.RevisionNumber else ""}
+
+
+def doc_name(data_type, index, file_path) -> str:
+    """Generated document id for the filename attr (NOT the real name): '<type>_<index>_<hash>.txt'.
+    The real name is kept in metadata as <source_file>."""
+    digest = hashlib.sha256(Path(file_path).read_bytes()).hexdigest()[:24]
+    return f"{data_type.lower()}_{index}_{digest}.txt"
+
+
 def log_parse(kind, slides, registry, skipped_vector=0, skipped_small=0):
     placements = sum(k == "image" for s in slides for k, _ in s.blocks)
     logger.info("%s: %d slides, %d images, %d placements, %d vector + %d small skipped",
@@ -135,12 +171,13 @@ def iter_pptx_blocks(shapes, registry):
                 yield "text", "\n".join(rows)
 
 
-def parse_pptx(path, registry) -> list:
+def parse_pptx(path, registry) -> tuple:
     from pptx import Presentation
+    prs = Presentation(str(path))
     slides = [Slide(n, list(iter_pptx_blocks(slide.shapes, registry)))
-              for n, slide in enumerate(Presentation(str(path)).slides, start=1)]
+              for n, slide in enumerate(prs.slides, start=1)]
     log_parse("pptx", slides, registry)
-    return slides
+    return slides, _pptx_metadata(prs)
 
 
 # --- .ppt parsing (Spire ONLY: text + images + tables) ---------------------- #
@@ -232,33 +269,60 @@ def _spire_blocks(shapes, registry, stats):
             yield "text", text
 
 
-def parse_ppt(path, registry) -> list:
+def parse_ppt(path, registry) -> tuple:
     from spire.presentation import Presentation
     prs = Presentation()
     prs.LoadFromFile(str(path))
     stats = {"vector": 0, "small": 0}
     slides = [Slide(i + 1, list(_spire_blocks(prs.Slides[i].Shapes, registry, stats)))
               for i in range(prs.Slides.Count)]
+    metadata = _ppt_metadata(prs)
     prs.Dispose()
     log_parse("ppt", slides, registry, stats["vector"], stats["small"])
-    return slides
+    return slides, metadata
 
 
-# --- rendering (exact placement for both formats) --------------------------- #
-def render_xml(slides, by_id, filename, data_type, index=1) -> str:
-    slide_texts = []
+# --- rendering (semantic XML: <text> = native, <figure> = image-derived) ---- #
+# Layout mirrors pdf_extractor so an LLM can tell native text from image content:
+#   <document filename="..." type="PPT">
+#     <metadata><title>...</title>...</metadata>
+#     <slide number="1">
+#       <text>...</text>
+#       <figure id="1">description of the image</figure>
+#     </slide>
+#   </document>
+def render_xml(slides, by_id, filename, data_type, metadata=None, index=1) -> str:
+    lines = [f'<document index="{index}" filename="{xml_attr(filename)}"'
+             f' data-type="{xml_attr(data_type)}">']
+    if metadata:
+        lines.append("  <metadata>")
+        for key, value in metadata.items():
+            if value:
+                lines.append(f"    <{key}>{xml_text(value)}</{key}>")
+        lines.append("  </metadata>")
+
     for slide in slides:
-        parts = [f"Slide {slide.number}"]
+        lines.append(f'  <slide number="{slide.number}">')
+        text_buf = []
+
+        def flush_text():
+            if text_buf:
+                lines.append(f"    <text>{xml_text(chr(10).join(text_buf))}</text>")
+                text_buf.clear()
+
         for kind, value in slide.blocks:
             if kind == "text":
-                parts.append(value)
-            else:
-                desc = by_id[value].description or "(no description)"
-                parts.append(f"[Image {value}]\n{desc}")
-        slide_texts.append("\n\n".join(parts))
-    body = "\n\n".join(slide_texts)
-    return (f'<documents>\n  <document index="{index}" filename="{xml_attr(filename)}"'
-            f' data-type="{xml_attr(data_type)}">\n{body}\n  </document>\n</documents>\n')
+                text_buf.append(value)
+            else:                                            # image -> its own <figure> tag
+                flush_text()
+                ref = by_id[value]
+                desc = xml_text(ref.description or "(no description)")
+                lines.append(f'    <figure id="{ref.image_id}">{desc}</figure>')
+        flush_text()
+        lines.append("  </slide>")
+
+    lines.append("</document>")
+    return "\n".join(lines) + "\n"
 
 
 # --- entry point ------------------------------------------------------------ #
@@ -267,7 +331,7 @@ def pptx_converter(file_path, output_dir=None, *, model=DEFAULT_MODEL,
                    data_type=None, client=None, describe=True) -> str:
     path, kind = validate_file(file_path)
     registry = ImageRegistry()
-    slides = parse_pptx(path, registry) if kind == "pptx" else parse_ppt(path, registry)
+    slides, file_meta = parse_pptx(path, registry) if kind == "pptx" else parse_ppt(path, registry)
 
     images = registry.images
     if images and describe:
@@ -275,7 +339,10 @@ def pptx_converter(file_path, output_dir=None, *, model=DEFAULT_MODEL,
         llm.describe_images(images, model=model, max_workers=max_workers, prompt=prompt, client=client)
 
     by_id = {image.image_id: image for image in images}
-    xml = render_xml(slides, by_id, path.name, data_type or kind.upper())
+    dtype = data_type or kind.upper()
+    metadata = {"source_file": path.name, "slides": str(len(slides)),
+                "images": str(len(images)), **file_meta}    # real name kept as source_file
+    xml = render_xml(slides, by_id, doc_name(dtype, 1, path), dtype, metadata=metadata, index=1)
     if output_dir is not None:
         out_path = Path(output_dir) / f"{path.stem}.xml"
         out_path.parent.mkdir(parents=True, exist_ok=True)
