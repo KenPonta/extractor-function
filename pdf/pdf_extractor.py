@@ -9,9 +9,10 @@ WHAT IT DOES
 FOUR THINGS IT HANDLES ON PURPOSE
     1. Normal pages         -> <text> blocks + <figure> items, interleaved in reading order.
     2. Full-page-image      -> a page that is one big image with little/no text layer is rendered
-       pages (scans, full-     whole and DESCRIBED as a <figure> (the vision model transcribes any
-       page figures)           text or describes the figure as it sees fit). Blank pages fall back
-                               to whole-page transcription, becoming the page's <text>.
+       pages (scans, full-     whole and DESCRIBED as a <figure>. A scan carrying 2+ embedded
+       page figures)           images is kept per-image: each embedded picture becomes its own
+                               <figure> instead. Blank pages fall back to whole-page
+                               transcription, becoming the page's <text>.
     3. Vector-diagram pages -> a flowchart/diagram drawn as vector paths (invisible to text/image
        (e.g. flowcharts)       extraction) is rendered whole and described as a <figure>, so its
                                labels aren't leaked as loose text.
@@ -269,8 +270,16 @@ def build_pages(doc, registry: ImageRegistry, *, fallback: bool = True) -> list:
         per_page[i + 1] = {"text": tb, "images": ib, "scanned": scanned,
                            "empty": empty, "vector": vector, "size": size}
 
-    # 2) Detect + stitch figures split across page breaks (only among non-scanned pages).
-    page_images = {n: pp["images"] for n, pp in per_page.items() if not pp["scanned"]}
+    # A page is rendered whole (one image) when it is a single-image scan, a blank page, or a
+    # vector diagram. A scan carrying 2+ embedded images is NOT rendered whole: it flows through
+    # normal assembly so each embedded image becomes its own <figure> (higher fidelity + dedup).
+    def renders_whole(pp) -> bool:
+        return ((pp["scanned"] and len(pp["images"]) <= 1)
+                or (pp["empty"] and fallback)
+                or pp["vector"])
+
+    # 2) Detect + stitch figures split across page breaks (among pages whose images are kept).
+    page_images = {n: pp["images"] for n, pp in per_page.items() if not renders_whole(pp)}
     sizes = {n: pp["size"] for n, pp in per_page.items()}
     consumed, stitched = set(), defaultdict(list)
     for n, i, m, j in detect_split_pairs(page_images, sizes):
@@ -287,24 +296,19 @@ def build_pages(doc, registry: ImageRegistry, *, fallback: bool = True) -> list:
     for n in range(1, n_pages + 1):
         pp = per_page[n]
         blocks = []
-        if pp["scanned"]:                                       # whole page is one image -> describe as a figure
+        if renders_whole(pp):                                   # render the whole page as one image
+            kind = "page" if pp["empty"] else "figure"          # blank -> transcribe; scan/vector -> describe
             png = render_page_png(doc[n - 1])
-            blocks.append(("image", registry.register(png, "png", "figure")))
-            logger.info("rendered full-page-image page %d as a figure", n)
-            pages.append(Page(n, blocks))
-            continue
-        if pp["empty"] and fallback:                            # blank page -> render + transcribe (OCR)
-            png = render_page_png(doc[n - 1])
-            blocks.append(("image", registry.register(png, "png", "page")))
-            pages.append(Page(n, blocks))
-            continue
-        if pp["vector"]:                                        # vector diagram -> render + describe
-            png = render_page_png(doc[n - 1])
-            blocks.append(("image", registry.register(png, "png", "figure")))
-            logger.info("rendered vector-diagram page %d as a figure", n)
+            blocks.append(("image", registry.register(png, "png", kind)))
+            if pp["vector"]:
+                logger.info("rendered vector-diagram page %d as a figure", n)
+            elif pp["scanned"]:
+                logger.info("rendered full-page-image page %d as a figure", n)
             pages.append(Page(n, blocks))
             continue
 
+        # Normal assembly. Also handles scans with 2+ embedded images: each image below becomes
+        # its own <figure> in reading order (interleaved with any selectable text).
         items = [(y0, x0, "text", text) for (y0, x0, text) in pp["text"]]
         for idx, im in enumerate(pp["images"]):                 # embedded figures
             if (n, idx) in consumed:
