@@ -8,8 +8,10 @@ WHAT IT DOES
 
 FOUR THINGS IT HANDLES ON PURPOSE
     1. Normal pages         -> <text> blocks + <figure> items, interleaved in reading order.
-    2. Scanned / blank      -> the whole page is rendered to PNG and transcribed (OCR-style),
-       pages                   its transcription becoming the page's <text>.
+    2. Full-page-image      -> a page that is one big image with little/no text layer is rendered
+       pages (scans, full-     whole and DESCRIBED as a <figure> (the vision model transcribes any
+       page figures)           text or describes the figure as it sees fit). Blank pages fall back
+                               to whole-page transcription, becoming the page's <text>.
     3. Vector-diagram pages -> a flowchart/diagram drawn as vector paths (invisible to text/image
        (e.g. flowcharts)       extraction) is rendered whole and described as a <figure>, so its
                                labels aren't leaked as loose text.
@@ -285,7 +287,13 @@ def build_pages(doc, registry: ImageRegistry, *, fallback: bool = True) -> list:
     for n in range(1, n_pages + 1):
         pp = per_page[n]
         blocks = []
-        if pp["scanned"] or (pp["empty"] and fallback):         # whole page -> transcribe (OCR)
+        if pp["scanned"]:                                       # whole page is one image -> describe as a figure
+            png = render_page_png(doc[n - 1])
+            blocks.append(("image", registry.register(png, "png", "figure")))
+            logger.info("rendered full-page-image page %d as a figure", n)
+            pages.append(Page(n, blocks))
+            continue
+        if pp["empty"] and fallback:                            # blank page -> render + transcribe (OCR)
             png = render_page_png(doc[n - 1])
             blocks.append(("image", registry.register(png, "png", "page")))
             pages.append(Page(n, blocks))
