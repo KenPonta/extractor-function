@@ -236,16 +236,8 @@ def parse(path, kind, registry) -> tuple:
     return slides, metadata
 
 
-# --- rendering (semantic XML: <text> = native, <figure> = image description) - #
-def render_xml(slides, by_id, filename, data_type, metadata=None, index=1) -> str:
-    lines = [f'<document index="{index}" filename="{xml_attr(filename)}"'
-             f' data-type="{xml_attr(data_type)}">']
-    if metadata:
-        lines.append("  <metadata>")
-        for key, value in metadata.items():
-            if value:
-                lines.append(f"    <{key}>{xml_text(value)}</{key}>")
-        lines.append("  </metadata>")
+def render_xml(slides, by_id) -> str:
+    lines = []
 
     for slide in slides:
         lines.append(f'  <slide number="{slide.number}">')
@@ -267,7 +259,6 @@ def render_xml(slides, by_id, filename, data_type, metadata=None, index=1) -> st
         flush_text()
         lines.append("  </slide>")
 
-    lines.append("</document>")
     return "\n".join(lines) + "\n"
 
 
@@ -285,22 +276,13 @@ def pptx_converter(file_path, output_dir=None, *, model=DEFAULT_MODEL,
         llm.describe_images(images, model=model, max_workers=max_workers, prompt=prompt, client=client)
 
     by_id = {image.image_id: image for image in images}
-    dtype = data_type or kind.upper()
-    metadata = {"source_file": path.name, "slides": str(len(slides)),
-                "images": str(len(images)), **file_meta}
-    xml = render_xml(slides, by_id, doc_name(dtype, 1, path), dtype, metadata=metadata, index=1)
-    if output_dir is not None:
-        out_path = Path(output_dir) / f"{path.stem}.xml"
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(xml, encoding="utf-8")
-        logger.info("written to %s", out_path)
-    return xml
+
+    return render_xml(slides, by_id)
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Convert .ppt/.pptx to semantic XML (Spire-only, v5).")
+    parser = argparse.ArgumentParser(description="Convert .ppt/.pptx to placeholder XML (Spire-only).")
     parser.add_argument("file", type=Path, help=".ppt or .pptx file")
-    parser.add_argument("-o", "--out", type=Path, default="output", help="output directory")
     parser.add_argument("--provider", choices=["azure", "openai"], default="azure",
                         help="azure (real device, default) or openai (dev box)")
     parser.add_argument("-m", "--model", default=None, help="override model / deployment name")
@@ -320,10 +302,11 @@ def main(argv=None):
         model = args.model or DEFAULT_MODEL
 
     try:
-        pptx_converter(args.file, args.out, model=model, client=client,
-                       data_type=args.data_type, describe=not args.no_describe)
+        xml = pptx_converter(args.file, model=model, client=client,
+                             data_type=args.data_type, describe=not args.no_describe)
     except (FileNotFoundError, ValueError) as exc:
         parser.error(str(exc))
+    print(xml)                                       # XML on stdout; logs go to stderr
 
 
 if __name__ == "__main__":
